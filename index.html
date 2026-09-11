@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>DSVC Sticker Generator</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <aside class="panel">
+      <header>
+        <h1>DSVC Sticker Generator</h1>
+        <p class="hint" id="mode-hint">R regenerates. D shows handles. G shows guidelines. S saves.</p>
+      </header>
+
+      <section class="mode-section">
+        <div class="segmented-control" id="app-mode-control" role="group" aria-label="Mode" data-active="editor">
+          <div class="segmented-control-thumb" aria-hidden="true"></div>
+          <button type="button" data-id="editor" aria-pressed="true">Editor</button>
+          <button type="button" data-id="sheet" aria-pressed="false">Sheet</button>
+        </div>
+      </section>
+
+      <div id="editor-panel">
+      <label class="lightswitch">
+        <span class="lightswitch-label">Letter overlay</span>
+        <input id="edge-labels" type="checkbox" checked />
+        <span class="lightswitch-track" aria-hidden="true"></span>
+      </label>
+
+      <label class="lightswitch">
+        <span class="lightswitch-label">69</span>
+        <input id="edge-label-s69" type="checkbox" />
+        <span class="lightswitch-track" aria-hidden="true"></span>
+      </label>
+
+      <label class="row">
+        <span>Edge offset</span>
+        <strong id="edge-label-offset-label">-30px</strong>
+      </label>
+      <input id="edge-label-offset" type="range" min="-100" max="100" step="1" value="-30" />
+
+      <label class="row">
+        <span>Edge start</span>
+        <strong id="edge-label-start-label">0px</strong>
+      </label>
+      <input id="edge-label-start" type="range" min="-400" max="400" step="1" value="0" />
+
+      <label class="row">
+        <span>Letter gap</span>
+        <strong id="edge-label-gap-label">60px</strong>
+      </label>
+      <input id="edge-label-gap" type="range" min="20" max="150" step="1" value="60" />
+
+      <div id="geo-corner-shuffle-row" hidden>
+        <button type="button" id="geo-shuffle-corners">Shuffle corner letters</button>
+      </div>
+
+      <div id="geo-manual-label-section" hidden>
+        <p class="hint" id="geo-manual-label-hint">Switch to manual mode, then place each letter on the canvas.</p>
+        <div class="template-grid" id="geo-label-placement-mode-grid"></div>
+        <button type="button" id="geo-manual-label-start">Place letters on canvas</button>
+        <div class="template-grid manual-letter-grid" id="geo-manual-letter-grid"></div>
+        <div id="geo-manual-letter-controls" hidden>
+          <label class="row">
+            <span>Rotation</span>
+            <strong id="geo-manual-label-rotation-label">0°</strong>
+          </label>
+          <input id="geo-manual-label-rotation" type="range" min="-180" max="180" step="1" value="0" />
+          <p class="hint manual-anchor-label">Rotation anchor</p>
+          <div class="template-grid anchor-grid" id="geo-manual-anchor-grid"></div>
+        </div>
+      </div>
+
+      <div id="edge-label-direction-row" hidden>
+        <button type="button" id="edge-label-reverse" aria-pressed="false">Letter order: forwards</button>
+      </div>
+
+      <label class="lightswitch">
+        <span class="lightswitch-label">Rescale letters</span>
+        <input id="rescale-letters" type="checkbox" checked />
+        <span class="lightswitch-track" aria-hidden="true"></span>
+      </label>
+
+      <section>
+        <div class="template-grid" id="template-grid"></div>
+        <div class="template-grid" id="letter-mode-grid"></div>
+      </section>
+
+      <section>
+        <div class="palette-wheel" id="palette-wheel" role="group" aria-label="Colors used">
+          <svg class="palette-wheel-svg" viewBox="0 0 100 100" aria-hidden="true">
+            <defs id="palette-wheel-defs"></defs>
+            <g id="palette-wheel-links"></g>
+            <path class="palette-wheel-preview" id="palette-wheel-preview" />
+          </svg>
+          <div class="palette-wheel-dots" id="palette-wheel-dots"></div>
+        </div>
+      </section>
+
+      <section>
+        <div class="template-grid" id="fill-mode-grid"></div>
+      </section>
+
+      <section>
+        <label class="row">
+          <span>Path scale</span>
+          <strong id="path-scale-label">37%</strong>
+        </label>
+        <input id="path-scale" type="range" min="0.2" max="1" step="0.01" value="0.37" />
+
+        <div id="geo-d-controls" hidden>
+          <label class="row">
+            <span>Bowl rotation</span>
+            <strong id="geo-d-bowl-rotation-label">0°</strong>
+          </label>
+          <input id="geo-d-bowl-rotation" type="range" min="-11" max="11" step="0.5" value="0" />
+
+          <label class="row">
+            <span>Bowl shift X</span>
+            <strong id="geo-d-bowl-shift-x-label">0px</strong>
+          </label>
+          <input id="geo-d-bowl-shift-x" type="range" min="-25" max="25" step="1" value="0" />
+
+          <label class="row">
+            <span>Bowl shift Y</span>
+            <strong id="geo-d-bowl-shift-y-label">0px</strong>
+          </label>
+          <input id="geo-d-bowl-shift-y" type="range" min="-30" max="75" step="1" value="0" />
+        </div>
+
+        <div id="geo-c-controls" hidden>
+          <label class="row">
+            <span>Stroke weight</span>
+            <strong id="geo-c-stroke-weight-label">190px</strong>
+          </label>
+          <input id="geo-c-stroke-weight" type="range" min="160" max="260" step="1" value="190" />
+
+          <label class="row">
+            <span>Top rotation</span>
+            <strong id="geo-c-top-rotation-label">0°</strong>
+          </label>
+          <input id="geo-c-top-rotation" type="range" min="-12" max="12" step="0.5" value="0" />
+
+          <label class="row">
+            <span>Bottom rotation</span>
+            <strong id="geo-c-bottom-rotation-label">0°</strong>
+          </label>
+          <input id="geo-c-bottom-rotation" type="range" min="-12" max="12" step="0.5" value="0" />
+
+          <label class="row">
+            <span>Vertical gap</span>
+            <strong id="geo-c-distance-label">0px</strong>
+          </label>
+          <input id="geo-c-distance" type="range" min="-120" max="120" step="1" value="0" />
+
+          <label class="row">
+            <span>Pull together</span>
+            <strong id="geo-c-overlap-label">0px</strong>
+          </label>
+          <input id="geo-c-overlap" type="range" min="0" max="80" step="1" value="0" />
+        </div>
+
+        <div id="geo-s-controls" hidden>
+          <label class="row">
+            <span>Stroke weight</span>
+            <strong id="geo-s-stroke-weight-label">190px</strong>
+          </label>
+          <input id="geo-s-stroke-weight" type="range" min="160" max="260" step="1" value="190" />
+
+          <label class="row">
+            <span>Top rotation</span>
+            <strong id="geo-s-top-rotation-label">0°</strong>
+          </label>
+          <input id="geo-s-top-rotation" type="range" min="-12" max="12" step="0.5" value="0" />
+
+          <label class="row">
+            <span>Bottom rotation</span>
+            <strong id="geo-s-bottom-rotation-label">0°</strong>
+          </label>
+          <input id="geo-s-bottom-rotation" type="range" min="-12" max="12" step="0.5" value="0" />
+
+          <label class="row">
+            <span>Vertical gap</span>
+            <strong id="geo-s-distance-label">0px</strong>
+          </label>
+          <input id="geo-s-distance" type="range" min="-120" max="120" step="1" value="0" />
+
+          <label class="row">
+            <span>Pull together</span>
+            <strong id="geo-s-overlap-label">0px</strong>
+          </label>
+          <input id="geo-s-overlap" type="range" min="0" max="80" step="1" value="0" />
+        </div>
+
+        <div id="geo-v-controls" hidden>
+          <label class="row">
+            <span>Leg gap</span>
+            <strong id="geo-v-leg-gap-label">40px</strong>
+          </label>
+          <input id="geo-v-leg-gap" type="range" min="-120" max="160" step="1" value="40" />
+
+          <label class="row">
+            <span>Aspect ratio 1</span>
+            <strong id="geo-v-leg-aspect-1-label">1.90</strong>
+          </label>
+          <input id="geo-v-leg-aspect-1" type="range" min="1.2" max="2.25" step="0.01" value="1.90" />
+
+          <label class="row">
+            <span>Aspect ratio 2</span>
+            <strong id="geo-v-leg-aspect-2-label">1.90</strong>
+          </label>
+          <input id="geo-v-leg-aspect-2" type="range" min="1.2" max="2.25" step="0.01" value="1.90" />
+
+          <label class="row">
+            <span>Rotation 1</span>
+            <strong id="geo-v-leg-rotation-1-label">41°</strong>
+          </label>
+          <input id="geo-v-leg-rotation-1" type="range" min="37" max="44" step="0.5" value="40.5" />
+
+          <label class="row">
+            <span>Rotation 2</span>
+            <strong id="geo-v-leg-rotation-2-label">-48°</strong>
+          </label>
+          <input id="geo-v-leg-rotation-2" type="range" min="-52" max="-45" step="0.5" value="-48.5" />
+
+          <label class="row">
+            <span>Y shift</span>
+            <strong id="geo-v-y-shift-label">40px</strong>
+          </label>
+          <input id="geo-v-y-shift" type="range" min="0" max="80" step="1" value="40" />
+        </div>
+
+        <div id="blobby-shape-controls">
+          <label class="row">
+            <span>Circle size</span>
+            <strong id="ellipse-label">175</strong>
+          </label>
+          <input id="ellipse-size" type="range" min="8" max="200" step="1" value="175" />
+
+          <div id="circle-spacing-controls" hidden>
+            <label class="row">
+              <span>Circle spacing</span>
+              <strong id="spacing-label">0.67</strong>
+            </label>
+            <input id="spacing" type="range" min="0.02" max="0.8" step="0.01" value="0.67" />
+          </div>
+
+          <label class="row">
+            <span>Jitter radius</span>
+            <strong id="jitter-label">12%</strong>
+          </label>
+          <input id="jitter" type="range" min="0" max="0.6" step="0.01" value="0.12" />
+        </div>
+      </section>
+
+      <section id="relax-section" hidden>
+        <label class="row">
+          <span>Relax</span>
+          <strong id="relax-label">0%</strong>
+        </label>
+        <input id="relax" type="range" min="0" max="1" step="0.01" value="0" />
+
+        <label class="row">
+          <span>Random difference</span>
+          <strong id="relax-random-label">0%</strong>
+        </label>
+        <input id="relax-random" type="range" min="0" max="1" step="0.01" value="0" />
+      </section>
+
+      <div class="actions">
+        <button type="button" id="randomize">Randomize</button>
+        <button type="button" id="shuffle">Shuffle colors</button>
+        <button type="button" id="download" class="primary">Download PNG + SVG</button>
+      </div>
+      </div>
+
+      <div id="creation-panel" hidden>
+        <section>
+          <label class="row">
+            <span>Paper size</span>
+          </label>
+          <select id="creation-paper-size">
+            <option value="letter">US Letter (8.5 × 11 in)</option>
+            <option value="a4">A4 (8.27 × 11.69 in)</option>
+            <option value="legal">US Legal (8.5 × 14 in)</option>
+            <option value="tabloid">Tabloid (11 × 17 in)</option>
+          </select>
+
+          <label class="row">
+            <span>Sticker size</span>
+            <strong id="creation-sticker-size-label">1.50 in</strong>
+          </label>
+          <input id="creation-sticker-size" type="range" min="0.75" max="2.5" step="0.05" value="1.5" />
+
+          <label class="row">
+            <span>Stickers</span>
+            <strong>6 per letter · 24 total</strong>
+          </label>
+
+          <p class="sheet-meta" id="creation-layout-info">Grid: 4 × 6 · 6 each of D, S, V, C</p>
+
+          <label class="row">
+            <span>Debug sticker size</span>
+            <input id="creation-sheet-debug" type="checkbox" />
+          </label>
+        </section>
+
+        <div class="actions">
+          <button type="button" id="creation-generate">Generate sheet</button>
+          <button type="button" id="creation-download" class="primary" disabled>Download PNG + SVG</button>
+        </div>
+      </div>
+    </aside>
+
+    <main id="canvas-holder">
+      <aside id="debug-labels" hidden>
+        <div class="debug-labels-meta">
+          <strong>DEBUG</strong>
+          <span>drag points and handles</span>
+          <span>Y good · N bad · E export</span>
+          <span id="debug-label-counts">0 good / 0 bad</span>
+          <span id="debug-label-notice" hidden></span>
+        </div>
+        <textarea id="debug-labels-json" readonly spellcheck="false" rows="14"></textarea>
+      </aside>
+    </main>
+
+    <script src="https://cdn.jsdelivr.net/npm/p5@1.11.3/lib/p5.min.js"></script>
+    <script src="sketch.js"></script>
+  </body>
+</html>
