@@ -13,16 +13,26 @@
         <p class="hint" id="mode-hint">R regenerates. D shows handles. G shows guidelines. S saves.</p>
       </header>
 
-      <section class="mode-section">
+      <section class="mode-section mode-section--sticky">
         <div class="segmented-control" id="app-mode-control" role="group" aria-label="Mode" data-active="editor">
           <div class="segmented-control-thumb" aria-hidden="true"></div>
-          <button type="button" data-id="editor" aria-pressed="true">Editor</button>
-          <button type="button" data-id="sheet" aria-pressed="false">Sheet</button>
+          <button type="button" data-id="editor" aria-pressed="true">
+            <svg class="segmented-control-icon" viewBox="0 0 16 16" aria-hidden="true">
+              <path fill="currentColor" d="M2.5 11.5V13h1.5l6.1-6.1-1.5-1.5L2.5 11.5zm9.9-7.4a1 1 0 0 0 0-1.4l-1.1-1.1a1 1 0 0 0-1.4 0L9.1 3.4l2.5 2.5 1.8-1.8z"/>
+            </svg>
+            <span>Editor</span>
+          </button>
+          <button type="button" data-id="sheet" aria-pressed="false">
+            <svg class="segmented-control-icon" viewBox="0 0 16 16" aria-hidden="true">
+              <path fill="currentColor" d="M2 3.5A1.5 1.5 0 0 1 3.5 2h9A1.5 1.5 0 0 1 14 3.5v9a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 12.5v-9zM4 4v2h2V4H4zm3 0v2h2V4H7zm3 0v2h2V4h-2zM4 7v2h2V7H4zm3 0v2h2V7H7zm3 0v2h2V7h-2zM4 10v2h2v-2H4zm3 0v2h2v-2H7zm3 0v2h2v-2h-2z"/>
+            </svg>
+            <span>Sheet</span>
+          </button>
         </div>
       </section>
 
       <div id="editor-panel">
-      <section>
+      <section class="editor-toolbar">
         <div class="template-grid" id="template-grid"></div>
         <div class="template-grid" id="letter-mode-grid"></div>
       </section>
@@ -243,13 +253,26 @@
 
         <div id="geo-manual-label-section" hidden>
           <p class="hint" id="geo-manual-label-hint">Letters are locked in place. Switch to editing to reposition them.</p>
-          <div class="template-grid" id="geo-manual-layout-mode-grid"></div>
+          <div
+            class="segmented-control layout-mode-control"
+            id="geo-manual-layout-mode-control"
+            role="group"
+            aria-label="Letter layout mode"
+            data-active="fixed"
+          >
+            <div class="segmented-control-thumb" aria-hidden="true"></div>
+            <button type="button" data-id="fixed" aria-pressed="true">Fixed</button>
+            <button type="button" data-id="editing" aria-pressed="false">Editing</button>
+          </div>
           <button type="button" id="geo-manual-label-start-over" hidden>Start over</button>
-          <div class="template-grid manual-letter-grid" id="geo-manual-letter-grid"></div>
+          <div class="template-grid manual-letter-grid" id="geo-manual-letter-grid" hidden></div>
           <div id="geo-manual-letter-controls" hidden>
             <label class="row">
               <span>Rotation</span>
-              <strong id="geo-manual-label-rotation-label">0°</strong>
+              <span class="row-value">
+                <input id="geo-manual-label-rotation-input" type="number" min="-180" max="180" step="1" value="0" />
+                <span>°</span>
+              </span>
             </label>
             <input id="geo-manual-label-rotation" type="range" min="-180" max="180" step="1" value="0" />
           </div>

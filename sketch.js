@@ -506,6 +506,10 @@ function windowResized() {
   redraw();
 }
 
+function supportsManualLabelLayout() {
+  return usingGeometric() || state.letterMode === "circles";
+}
+
 function usingGeometric() {
   return Boolean(generatedPath && generatedPath.kind === "geometric");
 }
@@ -557,7 +561,6 @@ function drawStickerContent() {
   if (usingGeometric()) {
     drawGeometricLetter();
     drawGeometricEdgeLabels();
-    drawManualLabelPlacementOverlay();
   } else {
     drawShapeStroke();
     if (state.fillMode === "shape") {
@@ -566,6 +569,9 @@ function drawStickerContent() {
       drawCircleFill();
     }
     drawBlobbyEdgeLabels();
+  }
+  if (supportsManualLabelLayout()) {
+    drawManualLabelPlacementOverlay();
   }
 }
 
@@ -831,6 +837,9 @@ function circlesEdgeLabelPositions() {
 }
 
 function edgeLabelPositions() {
+  if (hasCustomManualLabelPlacements()) {
+    return manualGeometricEdgeLabelPositions();
+  }
   if (state.letterMode === "circles") return circlesEdgeLabelPositions();
   return blobbyEdgeLabelPositions();
 }
@@ -1208,8 +1217,43 @@ function geometricLabelPlacementZone() {
   };
 }
 
+function circlesLabelPlacementZone() {
+  const pad = 24;
+  const labelPad = state.ellipseSize / 2 + Math.abs(state.edgeLabelOffset) + 20;
+  if (!pathPoints.length) {
+    return {
+      minX: pad,
+      minY: pad,
+      maxX: width - pad,
+      maxY: height - pad,
+    };
+  }
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  pathPoints.forEach((point) => {
+    minX = Math.min(minX, point.x);
+    minY = Math.min(minY, point.y);
+    maxX = Math.max(maxX, point.x);
+    maxY = Math.max(maxY, point.y);
+  });
+  return {
+    minX: Math.max(pad, minX - labelPad),
+    minY: Math.max(pad, minY - labelPad),
+    maxX: Math.min(width - pad, maxX + labelPad),
+    maxY: Math.min(height - pad, maxY + labelPad),
+  };
+}
+
+function manualLabelPlacementZone() {
+  if (usingGeometric()) return geometricLabelPlacementZone();
+  if (state.letterMode === "circles") return circlesLabelPlacementZone();
+  return null;
+}
+
 function pointInLabelPlacementZone(x, y) {
-  const zone = geometricLabelPlacementZone();
+  const zone = manualLabelPlacementZone();
   if (!zone) return false;
   return x >= zone.minX && x <= zone.maxX && y >= zone.minY && y <= zone.maxY;
 }
@@ -1225,17 +1269,32 @@ function resetGeometricLabelEditingState() {
   state.geoManualLabelLayoutMode = "fixed";
 }
 
-function seedManualPlacementsFromAutoCornersIfNeeded() {
+function seedManualPlacementsFromAutoIfNeeded() {
   if (hasCustomManualLabelPlacements()) return;
-  if (!templateHasDefaultGeometricLabels()) return;
-  const autoLabels = geometricCornerEdgeLabelPositions(defaultGeometricCornerSlots());
+  if (usingGeometric()) {
+    if (!templateHasDefaultGeometricLabels()) return;
+    const autoLabels = geometricCornerEdgeLabelPositions(defaultGeometricCornerSlots());
+    if (!autoLabels.length) return;
+    autoLabels.forEach((label, index) => {
+      const placement = state.geoManualLabelPlacements[index];
+      if (!placement || placement.char !== label.char) return;
+      placement.x = label.x;
+      placement.y = label.y;
+      placement.rotation = (label.rotation * 180) / Math.PI;
+      placement.anchor = DEFAULT_MANUAL_LABEL_ANCHOR;
+      placement.placed = true;
+    });
+    return;
+  }
+  if (state.letterMode !== "circles") return;
+  const autoLabels = circlesEdgeLabelPositions();
   if (!autoLabels.length) return;
   autoLabels.forEach((label, index) => {
     const placement = state.geoManualLabelPlacements[index];
     if (!placement || placement.char !== label.char) return;
     placement.x = label.x;
     placement.y = label.y;
-    placement.rotation = (label.rotation * 180) / Math.PI;
+    placement.rotation = ((label.rotation || 0) * 180) / Math.PI;
     placement.anchor = DEFAULT_MANUAL_LABEL_ANCHOR;
     placement.placed = true;
   });
@@ -1259,7 +1318,7 @@ function setManualLabelLayoutMode(mode) {
   if (mode === "fixed") {
     geoManualLabelDrag = null;
   } else {
-    seedManualPlacementsFromAutoCornersIfNeeded();
+    seedManualPlacementsFromAutoIfNeeded();
   }
   state.geoManualLabelLayoutMode = mode;
   syncManualLabelUi();
@@ -1289,7 +1348,7 @@ function manualLabelPlacementCount() {
 function manualLabelPlacementEditingEnabled() {
   return state.appMode === "editor"
     && state.edgeLabels
-    && usingGeometric()
+    && supportsManualLabelLayout()
     && state.geoManualLabelLayoutMode === "editing";
 }
 
@@ -1639,11 +1698,11 @@ function drawGeometricEdgeLabels() {
 
 function drawManualLabelPlacementOverlay() {
   if (state.exporting) return;
-  if (!usingGeometric()
+  if (!supportsManualLabelLayout()
     || state.geoManualLabelLayoutMode !== "editing"
     || !state.edgeLabels) return;
 
-  const zone = geometricLabelPlacementZone();
+  const zone = manualLabelPlacementZone();
   const placementPending = nextManualLabelPlacementIndex() >= 0;
   if (zone) {
     push();
@@ -1656,19 +1715,44 @@ function drawManualLabelPlacementOverlay() {
     pop();
   }
 
+  const activeLetter = activeTemplateLetter();
   state.geoManualLabelPlacements.forEach((placement, index) => {
     if (!placement.placed || placement.x == null || placement.y == null) return;
     const selected = index === state.geoManualLabelEditIndex;
+    const active = placement.char === activeLetter;
+    const rotation = (placement.rotation * Math.PI) / 180;
+    const { textAlign, textBaseline } = labelAnchorToAlign();
+    const font = active ? EDGE_LABEL_ACTIVE_FONT : EDGE_LABEL_FONT;
+    const fontSize = active ? EDGE_LABEL_ACTIVE_SIZE : EDGE_LABEL_SIZE;
+    const bounds = edgeLabelGlyphBounds(
+      placement.char,
+      font,
+      textAlign,
+      textBaseline,
+      fontSize,
+    );
+    const pad = 4;
+    const x0 = Math.min(...bounds.map((point) => point.x)) - pad;
+    const y0 = Math.min(...bounds.map((point) => point.y)) - pad;
+    const x1 = Math.max(...bounds.map((point) => point.x)) + pad;
+    const y1 = Math.max(...bounds.map((point) => point.y)) + pad;
+    const worldBounds = [
+      transformLabelPoint(x0, y0, placement.x, placement.y, rotation),
+      transformLabelPoint(x1, y0, placement.x, placement.y, rotation),
+      transformLabelPoint(x1, y1, placement.x, placement.y, rotation),
+      transformLabelPoint(x0, y1, placement.x, placement.y, rotation),
+    ];
+
     push();
-    noStroke();
-    fill(255, 209, 102, selected ? 240 : 170);
-    circle(placement.x, placement.y, selected ? 12 : 9);
-    fill(20, 20, 20);
-    textAlign(CENTER, CENTER);
-    textSize(10);
-    text(placement.char, placement.x, placement.y + 0.5);
+    noFill();
+    stroke(255, 209, 102, selected ? 240 : 170);
+    strokeWeight(selected ? 2 : 1.5);
+    drawingContext.setLineDash([5, 4]);
+    beginShape();
+    worldBounds.forEach((point) => vertex(point.x, point.y));
+    endShape(CLOSE);
+    drawingContext.setLineDash([]);
     pop();
-    drawDebugCross(placement.x, placement.y, 8, [255, 209, 102], selected ? 2 : 1);
   });
 
   const labelChars = activeEdgeLabelChars();
@@ -3709,18 +3793,23 @@ function bindEdgeLabelDirectionUi() {
   });
 }
 
+function syncManualLayoutModeSwitch() {
+  syncSegmentedControl("geo-manual-layout-mode-control", state.geoManualLabelLayoutMode);
+}
+
+function bindManualLayoutModeSwitch() {
+  const control = document.getElementById("geo-manual-layout-mode-control");
+  if (!control) return;
+  control.querySelectorAll("button").forEach((button) => {
+    button.addEventListener("click", () => {
+      setManualLabelLayoutMode(button.dataset.id);
+    });
+  });
+}
+
 function bindManualLabelUi() {
-  bindToggleGroup(
-    "geo-manual-layout-mode-grid",
-    [
-      { id: "fixed", name: "Fixed" },
-      { id: "editing", name: "Editing" },
-    ],
-    () => state.geoManualLabelLayoutMode,
-    (mode) => {
-      setManualLabelLayoutMode(mode);
-    },
-  );
+  bindManualLayoutModeSwitch();
+  syncManualLayoutModeSwitch();
 
   rebuildManualLetterGrid();
 
@@ -3731,12 +3820,38 @@ function bindManualLabelUi() {
     });
   }
 
-  bindRange("geo-manual-label-rotation", "geo-manual-label-rotation-label", (value) => {
+  bindManualLabelRotationUi();
+}
+
+function clampManualLabelRotation(value) {
+  if (!Number.isFinite(value)) return 0;
+  return Math.min(180, Math.max(-180, Math.round(value)));
+}
+
+function syncManualLabelRotationControls(rotation) {
+  const clamped = clampManualLabelRotation(rotation);
+  const range = document.getElementById("geo-manual-label-rotation");
+  const number = document.getElementById("geo-manual-label-rotation-input");
+  if (range) range.value = String(clamped);
+  if (number) number.value = String(clamped);
+  return clamped;
+}
+
+function bindManualLabelRotationUi() {
+  const range = document.getElementById("geo-manual-label-rotation");
+  const number = document.getElementById("geo-manual-label-rotation-input");
+  if (!range || !number) return;
+
+  const applyRotation = (value) => {
     const placement = manualLabelPlacement(state.geoManualLabelEditIndex);
     if (!placement) return;
-    placement.rotation = value;
+    placement.rotation = syncManualLabelRotationControls(value);
     redraw();
-  }, (value) => `${Math.round(value)}°`);
+  };
+
+  range.addEventListener("input", () => applyRotation(Number(range.value)));
+  number.addEventListener("input", () => applyRotation(Number(number.value)));
+  number.addEventListener("change", () => applyRotation(Number(number.value)));
 }
 
 function syncManualLabelUi() {
@@ -3745,14 +3860,14 @@ function syncManualLabelUi() {
   const hint = document.getElementById("geo-manual-label-hint");
   const startOverButton = document.getElementById("geo-manual-label-start-over");
   const letterGrid = document.getElementById("geo-manual-letter-grid");
-  const geometric = usingGeometric();
-  const editing = geometric && state.geoManualLabelLayoutMode === "editing";
+  const manualLayout = supportsManualLabelLayout();
+  const editing = manualLayout && state.geoManualLabelLayoutMode === "editing";
   const placement = manualLabelPlacement(state.geoManualLabelEditIndex);
 
-  if (section) section.hidden = !geometric;
-  if (letterGrid) letterGrid.hidden = !editing;
+  if (section) section.hidden = !manualLayout;
+  if (letterGrid) letterGrid.hidden = state.geoManualLabelLayoutMode !== "editing";
   if (controls) controls.hidden = !editing || !placement?.placed;
-  if (geometric) syncToggleButtons("geo-manual-layout-mode-grid", state.geoManualLabelLayoutMode);
+  if (manualLayout) syncManualLayoutModeSwitch();
 
   const labelChars = activeEdgeLabelChars();
   const placedCount = manualLabelPlacementCount();
@@ -3761,12 +3876,7 @@ function syncManualLabelUi() {
     const selectedChar = placement?.char || labelChars[state.geoManualLabelEditIndex];
     syncToggleButtons("geo-manual-letter-grid", selectedChar);
     if (placement?.placed) {
-      setRangeDisplay(
-        "geo-manual-label-rotation",
-        "geo-manual-label-rotation-label",
-        placement.rotation,
-        (value) => `${Math.round(value)}°`,
-      );
+      syncManualLabelRotationControls(placement.rotation);
     }
   }
 
@@ -3776,10 +3886,10 @@ function syncManualLabelUi() {
   }
 
   if (hint) {
-    if (!geometric) {
-      hint.textContent = "Letter editing is available in geometric mode.";
+    if (!manualLayout) {
+      hint.textContent = "Letter editing is available in geometric or circles mode.";
     } else if (state.geoManualLabelLayoutMode === "fixed") {
-      if (placedCount === 0 && !templateHasDefaultGeometricLabels()) {
+      if (placedCount === 0 && usingGeometric() && !templateHasDefaultGeometricLabels()) {
         hint.textContent = "No letters yet. Switch to editing to place them on the canvas.";
       } else if (placedCount === 0) {
         hint.textContent = "Default letters are shown. Switch to editing to reposition them.";
@@ -3804,7 +3914,7 @@ function syncModeHint() {
     hint.textContent = `Editing sticker ${creationSheet.editingIndex + 1}. Switch to Sheet to update the sheet.`;
     return;
   }
-  if (usingGeometric() && state.geoManualLabelLayoutMode === "editing") {
+  if (supportsManualLabelLayout() && state.geoManualLabelLayoutMode === "editing") {
     const nextIndex = nextManualLabelPlacementIndex();
     if (nextIndex >= 0) {
       const labelChars = activeEdgeLabelChars();
@@ -3824,8 +3934,10 @@ function syncEdgeLabelsUi() {
   const gapSlider = document.getElementById("edge-label-gap");
   const disabled = !state.edgeLabels;
   const geometric = usingGeometric();
+  const circles = state.letterMode === "circles";
   const customPlacements = hasCustomManualLabelPlacements();
-  const editingLabels = geometric && state.geoManualLabelLayoutMode === "editing";
+  const editingLabels = supportsManualLabelLayout() && state.geoManualLabelLayoutMode === "editing";
+  const manualCirclesLabels = circles && (editingLabels || customPlacements);
   const [startMin, startMax] = edgeLabelStartLimits();
   if (input) input.checked = state.edgeLabels;
   if (s69Input) {
@@ -3833,15 +3945,17 @@ function syncEdgeLabelsUi() {
     s69Input.disabled = disabled;
   }
   if (offsetSlider) {
-    offsetSlider.disabled = disabled || editingLabels || customPlacements || !templateHasDefaultGeometricLabels();
+    offsetSlider.disabled = disabled || editingLabels || customPlacements
+      || (geometric && !templateHasDefaultGeometricLabels())
+      || manualCirclesLabels;
   }
   if (startSlider) {
-    startSlider.disabled = disabled || geometric;
+    startSlider.disabled = disabled || geometric || manualCirclesLabels;
     startSlider.min = String(startMin);
     startSlider.max = String(startMax);
     state.edgeLabelStart = Math.max(startMin, Math.min(startMax, state.edgeLabelStart));
   }
-  if (gapSlider) gapSlider.disabled = disabled || geometric;
+  if (gapSlider) gapSlider.disabled = disabled || geometric || manualCirclesLabels;
   syncManualLabelUi();
   const directionRow = document.getElementById("edge-label-direction-row");
   const directionButton = document.getElementById("edge-label-reverse");
@@ -7384,7 +7498,7 @@ function onKeyDown(event) {
     }
     return;
   }
-  if (key === "escape" && usingGeometric() && state.geoManualLabelLayoutMode === "editing") {
+  if (key === "escape" && supportsManualLabelLayout() && state.geoManualLabelLayoutMode === "editing") {
     event.preventDefault();
     setManualLabelLayoutMode("fixed");
     return;
