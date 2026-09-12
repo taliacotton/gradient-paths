@@ -411,7 +411,7 @@ const state = {
 let creationSheet = {
   paperSize: "4x6",
   stickerSizeIn: 1.5,
-  sheetCount: 1,
+  sheetCount: 4,
   sheets: [],
   previewStack: null,
   cachedImage: null,
@@ -6920,9 +6920,9 @@ function renderSheetToContext(ctx, layout, snapshots, scale = 1) {
       const destY = Math.round(position.y * scale);
       const { cellCanvas, outline } = renderSheetStickerCell(
         snapshots[i],
-        layout.cellPx,
-        position.x,
-        position.y,
+        cellPx,
+        position.x * scale,
+        position.y * scale,
       );
       ctx.drawImage(cellCanvas, destX, destY, cellPx, cellPx);
       if (outline) outlines.push(outline);
@@ -6933,7 +6933,7 @@ function renderSheetToContext(ctx, layout, snapshots, scale = 1) {
   return outlines;
 }
 
-function buildSheetDieCutSvg(layout, outlines) {
+function buildSheetDieCutSvg(layout, outlines, scale = 1) {
   const pathMarkup = outlines.map((outline) => {
     if (outline.kind === "polygons") {
       return outline.paths
@@ -6944,7 +6944,21 @@ function buildSheetDieCutSvg(layout, outlines) {
     return `<path fill="none" stroke="#000000" stroke-width="0.75" d="${d}" />`;
   }).filter(Boolean).join("\n  ");
   if (!pathMarkup) return null;
-  return wrapDieCutSvg(pathMarkup, layout.sheetW, layout.sheetH);
+  return wrapDieCutSvg(
+    pathMarkup,
+    Math.round(layout.sheetW * scale),
+    Math.round(layout.sheetH * scale),
+  );
+}
+
+function renderSheetExport(layout, stickers, scale = 1) {
+  const offscreen = document.createElement("canvas");
+  offscreen.width = Math.round(layout.sheetW * scale);
+  offscreen.height = Math.round(layout.sheetH * scale);
+  const ctx = offscreen.getContext("2d");
+  const outlines = renderSheetToContext(ctx, layout, stickers, scale);
+  const svg = buildSheetDieCutSvg(layout, outlines, scale);
+  return { canvas: offscreen, svg };
 }
 
 function renderCreationSheetPreview() {
@@ -6995,6 +7009,11 @@ function renderCreationSheetPreview() {
       const destX = Math.round(sheetOffset.x * previewScale);
       const destY = Math.round(sheetOffset.y * previewScale);
       ctx.drawImage(sheetCanvas, destX, destY);
+      if (sheetCount > 1) {
+        ctx.strokeStyle = "#000000";
+        ctx.lineWidth = 1;
+        ctx.strokeRect(destX + 0.5, destY + 0.5, pagePreviewW - 1, pagePreviewH - 1);
+      }
     });
   } finally {
     state.sheetRendering = false;
@@ -7045,32 +7064,32 @@ async function downloadCreationSheet() {
   if (!creationSheet.sheets.length) return;
   const backup = captureEditorSnapshot();
   const exportId = exportTimestampId();
-  const downloads = creationSheet.sheets.map((sheet, index) => {
-    const layout = sheet.layout;
-    const offscreen = document.createElement("canvas");
-    offscreen.width = layout.sheetW;
-    offscreen.height = layout.sheetH;
-    const ctx = offscreen.getContext("2d");
-    const outlines = renderSheetToContext(ctx, layout, sheet.stickers, 1);
-    const svg = buildSheetDieCutSvg(layout, outlines);
-    const suffix = creationSheet.sheets.length > 1 ? `-${index + 1}` : "";
-    return { offscreen, svg, suffix };
-  });
+  const exportScales = [1, 2];
 
   restoreEditorSnapshot(backup);
   renderCreationSheetPreview();
 
-  for (const { offscreen, svg, suffix } of downloads) {
-    try {
-      const pngBlob = await canvasToPngBlob(offscreen);
-      triggerDownload(pngBlob, `sticker-sheet${suffix}-${exportId}.png`);
-      if (svg) {
-        await new Promise((resolve) => setTimeout(resolve, 350));
-        triggerDownload(svg, `sticker-sheet-die-cut${suffix}-${exportId}.svg`, "image/svg+xml");
+  for (let index = 0; index < creationSheet.sheets.length; index++) {
+    const sheet = creationSheet.sheets[index];
+    const sheetSuffix = creationSheet.sheets.length > 1 ? `-${index + 1}` : "";
+    for (const scale of exportScales) {
+      const scaleSuffix = scale === 1 ? "" : "-2x";
+      try {
+        const { canvas, svg } = renderSheetExport(sheet.layout, sheet.stickers, scale);
+        const pngBlob = await canvasToPngBlob(canvas);
+        triggerDownload(pngBlob, `sticker-sheet${sheetSuffix}${scaleSuffix}-${exportId}.png`);
+        if (svg) {
+          await new Promise((resolve) => setTimeout(resolve, 350));
+          triggerDownload(
+            svg,
+            `sticker-sheet-die-cut${sheetSuffix}${scaleSuffix}-${exportId}.svg`,
+            "image/svg+xml",
+          );
+        }
+        await new Promise((resolve) => setTimeout(resolve, 400));
+      } catch {
+        // Skip failed export and continue with remaining files.
       }
-      await new Promise((resolve) => setTimeout(resolve, 400));
-    } catch {
-      // Skip failed sheet export and continue with remaining sheets.
     }
   }
 }
