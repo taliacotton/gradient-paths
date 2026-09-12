@@ -196,7 +196,7 @@ const DEFAULT_GEO_S69_LABEL_CORNER_INDEX = 2;
 const DEFAULT_GEO_D_S69_LABEL_CORNER_INDEX = 4;
 const EXTREME_CORNER_NAMES = ["topLeft", "topRight", "bottomRight", "bottomLeft"];
 const LABEL_ANCHOR_NAMES = ["topLeft", "topRight", "bottomLeft", "bottomRight"];
-const DEFAULT_MANUAL_LABEL_ANCHOR = "topLeft";
+const DEFAULT_MANUAL_LABEL_ANCHOR = "center";
 const EDGE_LABEL_GAP = [20, 150];
 const EDGE_LABEL_GAP_RANDOM = [70, 120];
 const EDGE_LABEL_SIZE = 20;
@@ -261,9 +261,11 @@ const CREATION_DPI = 300;
 const SHEET_MARGIN_IN = 0.25;
 const STICKER_GAP_IN = 0.125;
 const SHEET_CELL_CONTENT_INSET_RATIO = 0.06;
-const SHEET_COPIES_PER_LETTER = 6;
+const SHEET_STICKERS_PER_PAGE = 6;
+const SHEET_COUNT_MAX = 4;
 
 const PAPER_SIZES = {
+  "4x6": { name: "4 × 6 in", widthIn: 4, heightIn: 6 },
   letter: { name: "US Letter", widthIn: 8.5, heightIn: 11 },
   a4: { name: "A4", widthIn: 8.27, heightIn: 11.69 },
   legal: { name: "US Legal", widthIn: 8.5, heightIn: 14 },
@@ -337,7 +339,7 @@ const COMPOSITION_STATE_KEYS = [
   "geoSBotOffsetX",
   "geoSBotOffsetY",
   "geoLabelCornerIndices",
-  "geoLabelPlacementMode",
+  "geoManualLabelLayoutMode",
   "geoManualLabelPlacements",
   "geoManualLabelEditIndex",
   "rescaleLetters",
@@ -365,7 +367,7 @@ const state = {
   edgeLabelReversed: false,
   edgeLabelS69: false,
   geoLabelCornerIndices: DEFAULT_GEO_S_LABEL_CORNER_INDICES.slice(),
-  geoLabelPlacementMode: "auto",
+  geoManualLabelLayoutMode: "fixed",
   geoManualLabelPlacements: createDefaultManualLabelPlacements(false),
   geoManualLabelEditIndex: 0,
   relaxAmount: 0,
@@ -407,11 +409,11 @@ const state = {
 };
 
 let creationSheet = {
-  paperSize: "letter",
+  paperSize: "4x6",
   stickerSizeIn: 1.5,
-  quantity: 24,
-  stickers: [],
-  layout: null,
+  sheetCount: 1,
+  sheets: [],
+  previewStack: null,
   cachedImage: null,
   previewScale: 1,
   editingIndex: -1,
@@ -437,8 +439,6 @@ let canvasPath = {
   guidelines: null,
 };
 let pathEdit = { drag: null, hover: null };
-let geoManualPlacementActive = false;
-let geoManualPlacementStep = 0;
 let geoManualLabelDrag = null;
 const MANUAL_LABEL_HIT_RADIUS = 18;
 let labelNotice = "";
@@ -491,7 +491,7 @@ function setup() {
 
 function windowResized() {
   if (state.appMode === "sheet") {
-    if (creationSheet.stickers.length) {
+    if (hasGeneratedSheets()) {
       renderCreationSheetPreview();
     } else {
       const holder = document.getElementById("canvas-holder");
@@ -774,22 +774,19 @@ function edgeLabelOrderReversed() {
 
 function edgeLabelCharsForBlobby() {
   const chars = activeEdgeLabelChars();
-  if (edgeLabelOrderReversed() && state.template !== "cee") {
+  if (edgeLabelOrderReversed()) {
     return [...chars].reverse();
   }
   return chars;
 }
 
 function edgeLabelPathStep(gap) {
-  if (edgeLabelOrderReversed() && state.template === "cee") {
-    return -gap;
-  }
   return gap;
 }
 
 function edgeLabelCharsForCircles() {
   const chars = activeEdgeLabelChars();
-  if (edgeLabelOrderReversed() && state.template !== "cee") {
+  if (edgeLabelOrderReversed()) {
     return [...chars].reverse();
   }
   return chars;
@@ -813,10 +810,7 @@ function circlesEdgeLabelPositions() {
   const labelCount = Math.min(chars.length, pointCount);
   const radius = state.ellipseSize / 2;
   const origin = pathCentroid(pathPoints);
-  const reverseStep = edgeLabelOrderReversed() && state.template === "cee";
-  const indexStep = reverseStep
-    ? -edgeLabelCircleIndexStep()
-    : edgeLabelCircleIndexStep();
+  const indexStep = edgeLabelCircleIndexStep();
   let circleIndex = edgeLabelCircleStartIndex(pointCount);
 
   const labels = [];
@@ -1090,11 +1084,20 @@ function geometricDefaultLabelCornerIndices() {
   return indices;
 }
 
+function templateHasDefaultGeometricLabels() {
+  return state.template === "moon";
+}
+
 function geometricAllCornerSlots() {
   const primitives = canvasPath.geometric || [];
   if (state.template === "moon") return geometricDAllCornerSlots(primitives);
   if (state.template === "sweep") return geometricSAllCornerSlots(primitives);
   return [];
+}
+
+function defaultGeometricCornerSlots() {
+  if (!templateHasDefaultGeometricLabels()) return [];
+  return geometricAllCornerSlots();
 }
 
 function geometricCornerSlotCount() {
@@ -1155,18 +1158,18 @@ function geometricCornerEdgeLabelPositions(slots) {
   }).filter(Boolean);
 }
 
-function geometricEdgeLabelPositions() {
-  if (state.geoLabelPlacementMode === "manual") {
-    return manualGeometricEdgeLabelPositions();
-  }
-  return geometricCornerEdgeLabelPositions(geometricAllCornerSlots());
+function hasCustomManualLabelPlacements() {
+  return state.geoManualLabelPlacements.some((item) => item.placed);
 }
 
-function labelAnchorToAlign(anchor) {
-  if (anchor === "topLeft") return { textAlign: "left", textBaseline: "top" };
-  if (anchor === "topRight") return { textAlign: "right", textBaseline: "top" };
-  if (anchor === "bottomLeft") return { textAlign: "left", textBaseline: "bottom" };
-  if (anchor === "bottomRight") return { textAlign: "right", textBaseline: "bottom" };
+function geometricEdgeLabelPositions() {
+  if (hasCustomManualLabelPlacements()) {
+    return manualGeometricEdgeLabelPositions();
+  }
+  return geometricCornerEdgeLabelPositions(defaultGeometricCornerSlots());
+}
+
+function labelAnchorToAlign() {
   return { textAlign: "center", textBaseline: "middle" };
 }
 
@@ -1179,7 +1182,7 @@ function manualGeometricEdgeLabelPositions() {
   return state.geoManualLabelPlacements
     .filter((item) => item.placed && item.x != null && item.y != null)
     .map((item) => {
-      const { textAlign, textBaseline } = labelAnchorToAlign(item.anchor);
+      const { textAlign, textBaseline } = labelAnchorToAlign();
       return {
         char: item.char,
         x: item.x,
@@ -1214,48 +1217,66 @@ function pointInLabelPlacementZone(x, y) {
 function resetManualLabelPlacements() {
   state.geoManualLabelPlacements = createDefaultManualLabelPlacements();
   state.geoManualLabelEditIndex = 0;
-  geoManualPlacementActive = false;
-  geoManualPlacementStep = 0;
   geoManualLabelDrag = null;
 }
 
-function startManualLabelPlacement() {
-  if (!usingGeometric() || state.geoLabelPlacementMode !== "manual") return;
-  const placedCount = manualLabelPlacementCount();
-  const labelCount = activeEdgeLabelChars().length;
-  if (placedCount >= labelCount) {
-    state.geoManualLabelPlacements = createDefaultManualLabelPlacements();
-    geoManualPlacementStep = 0;
-  } else {
-    geoManualPlacementStep = placedCount;
-  }
-  geoManualPlacementActive = true;
+function resetGeometricLabelEditingState() {
+  resetManualLabelPlacements();
+  state.geoManualLabelLayoutMode = "fixed";
+}
+
+function seedManualPlacementsFromAutoCornersIfNeeded() {
+  if (hasCustomManualLabelPlacements()) return;
+  if (!templateHasDefaultGeometricLabels()) return;
+  const autoLabels = geometricCornerEdgeLabelPositions(defaultGeometricCornerSlots());
+  if (!autoLabels.length) return;
+  autoLabels.forEach((label, index) => {
+    const placement = state.geoManualLabelPlacements[index];
+    if (!placement || placement.char !== label.char) return;
+    placement.x = label.x;
+    placement.y = label.y;
+    placement.rotation = (label.rotation * 180) / Math.PI;
+    placement.anchor = DEFAULT_MANUAL_LABEL_ANCHOR;
+    placement.placed = true;
+  });
+}
+
+function nextManualLabelPlacementIndex() {
+  return state.geoManualLabelPlacements.findIndex((item) => !item.placed);
+}
+
+function restartManualLabelPlacement() {
+  if (state.geoManualLabelLayoutMode !== "editing") return;
+  resetManualLabelPlacements();
   syncManualLabelUi();
   syncModeHint();
   redraw();
 }
 
-function cancelManualLabelPlacement() {
-  geoManualPlacementActive = false;
-  geoManualPlacementStep = 0;
-  geoManualLabelDrag = null;
+function setManualLabelLayoutMode(mode) {
+  if (mode !== "fixed" && mode !== "editing") return;
+  if (mode === state.geoManualLabelLayoutMode) return;
+  if (mode === "fixed") {
+    geoManualLabelDrag = null;
+  } else {
+    seedManualPlacementsFromAutoCornersIfNeeded();
+  }
+  state.geoManualLabelLayoutMode = mode;
   syncManualLabelUi();
   syncModeHint();
   redraw();
 }
 
 function placeManualLabelAt(x, y) {
-  if (!geoManualPlacementActive || geoManualPlacementStep >= activeEdgeLabelChars().length) return;
-  const placement = state.geoManualLabelPlacements[geoManualPlacementStep];
+  if (state.geoManualLabelLayoutMode !== "editing") return;
+  const index = nextManualLabelPlacementIndex();
+  if (index < 0) return;
+  const placement = state.geoManualLabelPlacements[index];
   if (!placement) return;
   placement.x = x;
   placement.y = y;
   placement.placed = true;
-  state.geoManualLabelEditIndex = geoManualPlacementStep;
-  geoManualPlacementStep += 1;
-  if (geoManualPlacementStep >= activeEdgeLabelChars().length) {
-    geoManualPlacementActive = false;
-  }
+  state.geoManualLabelEditIndex = index;
   syncManualLabelUi();
   syncModeHint();
   redraw();
@@ -1269,7 +1290,7 @@ function manualLabelPlacementEditingEnabled() {
   return state.appMode === "editor"
     && state.edgeLabels
     && usingGeometric()
-    && state.geoLabelPlacementMode === "manual";
+    && state.geoManualLabelLayoutMode === "editing";
 }
 
 function hitTestManualLabelPlacement(x, y) {
@@ -1402,7 +1423,7 @@ function geometricEdgeLabelDebugColor(piece) {
 
 function drawGeometricEdgeLabelDebug() {
   if (!state.edgeLabels || !usingGeometric()) return;
-  if (state.geoLabelPlacementMode === "manual") {
+  if (hasCustomManualLabelPlacements()) {
     const labels = manualGeometricEdgeLabelPositions();
     labels.forEach((label) => {
       drawDebugCross(label.x, label.y, 9, [255, 220, 72], 2.5);
@@ -1421,7 +1442,7 @@ function drawGeometricEdgeLabelDebug() {
     drawDebugCallout(12, 12, [
       "Manual letter overlay debug",
       "Yellow dots = click anchors",
-      "Use sidebar sliders to adjust rotation + anchor corner",
+      "Use sidebar slider to adjust rotation",
     ], [220, 220, 220]);
     return;
   }
@@ -1617,14 +1638,18 @@ function drawGeometricEdgeLabels() {
 }
 
 function drawManualLabelPlacementOverlay() {
-  if (!usingGeometric() || state.geoLabelPlacementMode !== "manual" || !state.edgeLabels) return;
+  if (state.exporting) return;
+  if (!usingGeometric()
+    || state.geoManualLabelLayoutMode !== "editing"
+    || !state.edgeLabels) return;
 
   const zone = geometricLabelPlacementZone();
+  const placementPending = nextManualLabelPlacementIndex() >= 0;
   if (zone) {
     push();
     noFill();
-    stroke(255, 209, 102, geoManualPlacementActive ? 220 : 120);
-    strokeWeight(geoManualPlacementActive ? 2 : 1.5);
+    stroke(255, 209, 102, placementPending ? 220 : 120);
+    strokeWeight(placementPending ? 2 : 1.5);
     drawingContext.setLineDash([8, 6]);
     rect(zone.minX, zone.minY, zone.maxX - zone.minX, zone.maxY - zone.minY);
     drawingContext.setLineDash([]);
@@ -1647,8 +1672,9 @@ function drawManualLabelPlacementOverlay() {
   });
 
   const labelChars = activeEdgeLabelChars();
-  if (geoManualPlacementActive && geoManualPlacementStep < labelChars.length) {
-    const nextChar = labelChars[geoManualPlacementStep];
+  const nextIndex = nextManualLabelPlacementIndex();
+  if (nextIndex >= 0) {
+    const nextChar = labelChars[nextIndex];
     push();
     textAlign(CENTER, TOP);
     textSize(12);
@@ -1656,7 +1682,7 @@ function drawManualLabelPlacementOverlay() {
     const zoneCenterX = zone ? (zone.minX + zone.maxX) / 2 : width / 2;
     const zoneTopY = zone ? zone.minY : 24;
     text(
-      `Click to place ${nextChar} (${geoManualPlacementStep + 1}/${labelChars.length})`,
+      `Click to place ${nextChar} (${nextIndex + 1}/${labelChars.length})`,
       zoneCenterX,
       Math.max(16, zoneTopY - 28),
     );
@@ -1746,7 +1772,7 @@ function bindUi() {
         state.template = template.id;
         ensureLetterModeForTemplate();
         if (state.letterMode === "geometric") resetGeometricLabelCorners();
-        cancelManualLabelPlacement();
+        resetGeometricLabelEditingState();
       }
       syncTemplateUi();
       regenerateCurrentPath();
@@ -1760,7 +1786,6 @@ function bindUi() {
   bindRescaleUi();
   bindEdgeLabelsUi();
   bindEdgeLabelS69Ui();
-  bindGeometricCornerShuffleUi();
   bindEdgeLabelDirectionUi();
   bindManualLabelUi();
 
@@ -1910,24 +1935,37 @@ function exportTimestampId() {
 
 function downloadTransparentPng() {
   const exportId = exportTimestampId();
-  state.exporting = true;
-  redraw();
-  const pngDataUrl = drawingContext.canvas.toDataURL("image/png");
-  const svg = buildDieCutSvg();
-  state.exporting = false;
-  redraw();
+  const exportPx = inchesToPx(creationSheet.stickerSizeIn);
+  const { cellCanvas, outline, exportPx: px } = renderCurrentCompositionExport(exportPx);
+  const svg = buildDieCutSvgFromOutline(outline, px, px);
 
-  triggerDownload(pngDataUrl, `gradient-path-${exportId}.png`);
-  if (svg) {
-    setTimeout(() => triggerDownload(svg, `gradient-path-die-cut-${exportId}.svg`, "image/svg+xml"), 300);
-  }
+  canvasToPngBlob(cellCanvas).then((blob) => {
+    triggerDownload(blob, `gradient-path-${exportId}.png`);
+    if (svg) {
+      setTimeout(() => triggerDownload(svg, `gradient-path-die-cut-${exportId}.svg`, "image/svg+xml"), 300);
+    }
+    redraw();
+  }).catch(() => {
+    redraw();
+  });
 }
 
 function triggerDownload(content, filename, mime) {
-  const blob = typeof content === "string" && !content.startsWith("data:")
-    ? new Blob([content], { type: mime || "text/plain" })
-    : null;
-  const url = blob ? URL.createObjectURL(blob) : content;
+  let url;
+  let revoke = false;
+  if (content instanceof Blob) {
+    url = URL.createObjectURL(content);
+    revoke = true;
+  } else if (typeof content === "string" && content.startsWith("data:")) {
+    url = content;
+  } else if (typeof content === "string" && content.startsWith("blob:")) {
+    url = content;
+    revoke = true;
+  } else {
+    const blob = new Blob([content], { type: mime || "text/plain" });
+    url = URL.createObjectURL(blob);
+    revoke = true;
+  }
   const link = document.createElement("a");
   link.style.display = "none";
   link.href = url;
@@ -1935,7 +1973,7 @@ function triggerDownload(content, filename, mime) {
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
-  if (blob) setTimeout(() => URL.revokeObjectURL(url), 1000);
+  if (revoke) setTimeout(() => URL.revokeObjectURL(url), 60000);
 }
 
 function renderDieCutSilhouette(ctx, extraPad = 0) {
@@ -2428,8 +2466,16 @@ function buildDieCutSvg() {
 }
 
 const FILL_PREVIEW_COLORS = ["#1ADEFF", "#5EE9B0", "#FFC700", "#FF5A2A", "#FF2D7B"];
-const FILL_PREVIEW_XS = [12, 28, 44, 60, 76];
-const FILL_PREVIEW_R = 10;
+const FILL_PREVIEW_SHAPE_Y = 8;
+const FILL_PREVIEW_SHAPE_H = 16;
+const FILL_PREVIEW_SHAPE_R = FILL_PREVIEW_SHAPE_H / 2;
+const FILL_PREVIEW_CIRCLE_XS = [8, 20, 32];
+const FILL_PREVIEW_CIRCLE_COLORS = [
+  FILL_PREVIEW_COLORS[0],
+  FILL_PREVIEW_COLORS[2],
+  FILL_PREVIEW_COLORS[4],
+];
+const FILL_PREVIEW_SPLIT_XS = [10, 30];
 
 function fillPreviewStops() {
   return FILL_PREVIEW_COLORS.map((color, i) => (
@@ -2437,27 +2483,53 @@ function fillPreviewStops() {
   )).join("");
 }
 
-function fillPreviewSvg(mode) {
-  if (mode === "circles") {
-    const circles = FILL_PREVIEW_XS.map((x, i) => (
-      `<circle cx="${x}" cy="16" r="${FILL_PREVIEW_R}" fill="${FILL_PREVIEW_COLORS[i]}"/>`
-    )).join("");
-    return `<svg class="fill-preview" viewBox="0 0 88 32" aria-hidden="true">${circles}</svg>`;
-  }
-  if (mode === "split") {
-    return `<svg class="fill-preview" viewBox="0 0 88 32" aria-hidden="true">
-      <rect x="2" y="6" width="40" height="20" rx="10" fill="${FILL_PREVIEW_COLORS[0]}"/>
-      <defs>
-        <radialGradient id="fill-split-grad" cx="0" cy="0.5" r="1" gradientUnits="objectBoundingBox">${fillPreviewStops()}</radialGradient>
-      </defs>
-      <rect x="46" y="6" width="40" height="20" rx="10" fill="url(#fill-split-grad)"/>
+function fillShapePreviewStops() {
+  return [
+    `<stop offset="0" stop-color="${FILL_PREVIEW_COLORS[0]}"/>`,
+    `<stop offset="1" stop-color="${FILL_PREVIEW_COLORS[2]}"/>`,
+  ].join("");
+}
+
+function letterModePreviewSvg(mode) {
+  if (mode === "blobby") {
+    return `<svg class="mode-preview" viewBox="0 0 32 32" aria-hidden="true">
+      <path d="M16 5 C21 4 26 8 27 13 C28 17 26 21 24 24 C21 28 15 29 11 26 C6 23 4 18 5 13 C6 8 11 6 16 5 Z" fill="currentColor"/>
     </svg>`;
   }
-  return `<svg class="fill-preview" viewBox="0 0 88 32" aria-hidden="true">
+  if (mode === "circles") {
+    return `<svg class="mode-preview" viewBox="0 0 32 32" aria-hidden="true">
+      <circle cx="11" cy="16" r="5.5" fill="currentColor"/>
+      <circle cx="21" cy="16" r="5.5" fill="currentColor"/>
+    </svg>`;
+  }
+  return `<svg class="mode-preview" viewBox="0 0 32 32" aria-hidden="true">
+    <path d="M16 9 L6 26 L26 26 Z" fill="currentColor"/>
+  </svg>`;
+}
+
+function fillPreviewSvg(mode) {
+  const cy = FILL_PREVIEW_SHAPE_Y + FILL_PREVIEW_SHAPE_R;
+  if (mode === "circles") {
+    const circles = FILL_PREVIEW_CIRCLE_XS.map((x, i) => (
+      `<circle cx="${x}" cy="${cy}" r="${FILL_PREVIEW_SHAPE_R}" fill="${FILL_PREVIEW_CIRCLE_COLORS[i]}"/>`
+    )).join("");
+    return `<svg class="fill-preview" viewBox="0 0 40 32" aria-hidden="true">${circles}</svg>`;
+  }
+  if (mode === "split") {
+    const [leftX, rightX] = FILL_PREVIEW_SPLIT_XS;
+    return `<svg class="fill-preview" viewBox="0 0 40 32" aria-hidden="true">
+      <circle cx="${leftX}" cy="${cy}" r="${FILL_PREVIEW_SHAPE_R}" fill="${FILL_PREVIEW_COLORS[0]}"/>
       <defs>
-        <linearGradient id="fill-shape-grad" x1="4" y1="16" x2="84" y2="16" gradientUnits="userSpaceOnUse">${fillPreviewStops()}</linearGradient>
+        <linearGradient id="fill-split-grad" x1="${rightX - FILL_PREVIEW_SHAPE_R}" y1="${cy}" x2="${rightX + FILL_PREVIEW_SHAPE_R}" y2="${cy}" gradientUnits="userSpaceOnUse">${fillShapePreviewStops()}</linearGradient>
       </defs>
-      <rect x="2" y="6" width="84" height="20" rx="10" fill="url(#fill-shape-grad)"/>
+      <circle cx="${rightX}" cy="${cy}" r="${FILL_PREVIEW_SHAPE_R}" fill="url(#fill-split-grad)"/>
+    </svg>`;
+  }
+  return `<svg class="fill-preview" viewBox="0 0 40 32" aria-hidden="true">
+      <defs>
+        <linearGradient id="fill-shape-grad" x1="2" y1="${cy}" x2="38" y2="${cy}" gradientUnits="userSpaceOnUse">${fillShapePreviewStops()}</linearGradient>
+      </defs>
+      <rect x="2" y="${FILL_PREVIEW_SHAPE_Y}" width="36" height="${FILL_PREVIEW_SHAPE_H}" rx="${FILL_PREVIEW_SHAPE_R}" fill="url(#fill-shape-grad)"/>
     </svg>`;
 }
 
@@ -2479,9 +2551,9 @@ function ensureLetterModeForTemplate() {
 
 function bindLetterModeUi() {
   bindToggleGroup("letter-mode-grid", [
-    { id: "blobby", name: "Blobby Shapes" },
-    { id: "circles", name: "Circles" },
-    { id: "geometric", name: "Geometric Shapes" },
+    { id: "blobby", name: "Blobby Shapes", preview: letterModePreviewSvg("blobby") },
+    { id: "circles", name: "Circles", preview: letterModePreviewSvg("circles") },
+    { id: "geometric", name: "Geometric Shapes", preview: letterModePreviewSvg("geometric") },
   ], () => state.letterMode, (id) => {
     if (!availableLetterModes().includes(id)) return;
     if (id !== state.letterMode) {
@@ -2489,10 +2561,7 @@ function bindLetterModeUi() {
       state.letterMode = id;
       applyLetterModeShape(id);
       if (id === "geometric") resetGeometricLabelCorners();
-      if (id !== "geometric") {
-        cancelManualLabelPlacement();
-        state.geoLabelPlacementMode = "auto";
-      }
+      resetGeometricLabelEditingState();
     }
     regenerateCurrentPath();
   });
@@ -2512,7 +2581,11 @@ function syncLetterModeUi() {
     const enabled = allowed.includes(id);
     el.disabled = !enabled;
     el.setAttribute("aria-pressed", String(id === state.letterMode));
-    if (id === "geometric") {
+    if (id === "blobby") {
+      el.title = "Blobby Shapes";
+    } else if (id === "circles") {
+      el.title = "Circles";
+    } else if (id === "geometric") {
       el.title = enabled ? "Geometric Shapes" : "Geometric is only available for D, V, S, and C";
     }
   });
@@ -2691,12 +2764,68 @@ function randomizeCompositionForTemplate(templateId, options = {}) {
 
 function randomizeComposition() {
   randomizeCompositionForTemplate(pick(TEMPLATES).id, { syncUi: true });
+  if (usingGeometric()) resetGeometricLabelEditingState();
   syncBlobbyControlsUi();
   syncEdgeLabelsUi();
 }
 
-function sheetStickerCount() {
-  return SHEET_COPIES_PER_LETTER * TEMPLATES.length;
+function stickersPerSheetPage() {
+  return SHEET_STICKERS_PER_PAGE;
+}
+
+function totalSheetStickerCount() {
+  return stickersPerSheetPage() * creationSheet.sheetCount;
+}
+
+function hasGeneratedSheets() {
+  return creationSheet.sheets.some((sheet) => sheet.stickers.length > 0);
+}
+
+function flatSheetStickerCount() {
+  return creationSheet.sheets.reduce((total, sheet) => total + sheet.stickers.length, 0);
+}
+
+function getFlatSheetSticker(flatIndex) {
+  let index = flatIndex;
+  for (const sheet of creationSheet.sheets) {
+    if (index < sheet.stickers.length) return sheet.stickers[index];
+    index -= sheet.stickers.length;
+  }
+  return null;
+}
+
+function setFlatSheetSticker(flatIndex, snapshot) {
+  let index = flatIndex;
+  for (const sheet of creationSheet.sheets) {
+    if (index < sheet.stickers.length) {
+      sheet.stickers[index] = snapshot;
+      return;
+    }
+    index -= sheet.stickers.length;
+  }
+}
+
+function clearCreationSheet() {
+  creationSheet.sheets = [];
+  creationSheet.previewStack = null;
+  creationSheet.cachedImage = null;
+  creationSheet.editingIndex = -1;
+  creationSheet.sourceCanvasW = 0;
+  creationSheet.sourceCanvasH = 0;
+}
+
+function buildBalancedTemplateIds(count) {
+  const templateIds = TEMPLATES.map((template) => template.id);
+  const order = [];
+  const base = Math.floor(count / templateIds.length);
+  let remainder = count % templateIds.length;
+  templateIds.forEach((id) => {
+    for (let i = 0; i < base; i++) order.push(id);
+  });
+  if (remainder > 0) {
+    shuffleArray(templateIds.slice()).slice(0, remainder).forEach((id) => order.push(id));
+  }
+  return shuffleArray(order);
 }
 
 function shuffleArray(items) {
@@ -3525,10 +3654,6 @@ function syncEdgeLabelS69State() {
   if (state.geoLabelCornerIndices.length !== chars.length) {
     state.geoLabelCornerIndices = geometricDefaultLabelCornerIndices().slice();
   }
-  if (geoManualPlacementStep > chars.length) {
-    geoManualPlacementStep = chars.length;
-    geoManualPlacementActive = false;
-  }
   geoManualLabelDrag = null;
   rebuildManualLetterGrid();
 }
@@ -3574,14 +3699,6 @@ function bindEdgeLabelS69Ui() {
   });
 }
 
-function bindGeometricCornerShuffleUi() {
-  const button = document.getElementById("geo-shuffle-corners");
-  if (!button) return;
-  button.addEventListener("click", () => {
-    reshuffleGeometricLabelCorners();
-  });
-}
-
 function bindEdgeLabelDirectionUi() {
   const button = document.getElementById("edge-label-reverse");
   if (!button) return;
@@ -3594,54 +3711,23 @@ function bindEdgeLabelDirectionUi() {
 
 function bindManualLabelUi() {
   bindToggleGroup(
-    "geo-label-placement-mode-grid",
+    "geo-manual-layout-mode-grid",
     [
-      { id: "auto", name: "Auto corners" },
-      { id: "manual", name: "Manual clicks" },
+      { id: "fixed", name: "Fixed" },
+      { id: "editing", name: "Editing" },
     ],
-    () => state.geoLabelPlacementMode,
+    () => state.geoManualLabelLayoutMode,
     (mode) => {
-      state.geoLabelPlacementMode = mode;
-      if (mode === "auto") {
-        cancelManualLabelPlacement();
-      } else {
-        resetManualLabelPlacements();
-      }
-      syncManualLabelUi();
-      syncEdgeLabelsUi();
-      syncModeHint();
-      redraw();
+      setManualLabelLayoutMode(mode);
     },
   );
 
   rebuildManualLetterGrid();
 
-  bindToggleGroup(
-    "geo-manual-anchor-grid",
-    [
-      { id: "topLeft", name: "Top left" },
-      { id: "topRight", name: "Top right" },
-      { id: "bottomLeft", name: "Bottom left" },
-      { id: "bottomRight", name: "Bottom right" },
-    ],
-    () => manualLabelPlacement(state.geoManualLabelEditIndex)?.anchor || DEFAULT_MANUAL_LABEL_ANCHOR,
-    (anchor) => {
-      const placement = manualLabelPlacement(state.geoManualLabelEditIndex);
-      if (!placement) return;
-      placement.anchor = anchor;
-      syncManualLabelUi();
-      redraw();
-    },
-  );
-
-  const startButton = document.getElementById("geo-manual-label-start");
-  if (startButton) {
-    startButton.addEventListener("click", () => {
-      if (geoManualPlacementActive) {
-        cancelManualLabelPlacement();
-      } else {
-        startManualLabelPlacement();
-      }
+  const startOverButton = document.getElementById("geo-manual-label-start-over");
+  if (startOverButton) {
+    startOverButton.addEventListener("click", () => {
+      restartManualLabelPlacement();
     });
   }
 
@@ -3657,20 +3743,24 @@ function syncManualLabelUi() {
   const section = document.getElementById("geo-manual-label-section");
   const controls = document.getElementById("geo-manual-letter-controls");
   const hint = document.getElementById("geo-manual-label-hint");
-  const startButton = document.getElementById("geo-manual-label-start");
-  const manual = usingGeometric() && state.geoLabelPlacementMode === "manual";
+  const startOverButton = document.getElementById("geo-manual-label-start-over");
+  const letterGrid = document.getElementById("geo-manual-letter-grid");
+  const geometric = usingGeometric();
+  const editing = geometric && state.geoManualLabelLayoutMode === "editing";
   const placement = manualLabelPlacement(state.geoManualLabelEditIndex);
 
-  if (section) section.hidden = !usingGeometric();
-  if (controls) controls.hidden = !manual || !placement?.placed;
-  syncToggleButtons("geo-label-placement-mode-grid", state.geoLabelPlacementMode);
+  if (section) section.hidden = !geometric;
+  if (letterGrid) letterGrid.hidden = !editing;
+  if (controls) controls.hidden = !editing || !placement?.placed;
+  if (geometric) syncToggleButtons("geo-manual-layout-mode-grid", state.geoManualLabelLayoutMode);
 
   const labelChars = activeEdgeLabelChars();
-  if (manual) {
+  const placedCount = manualLabelPlacementCount();
+  const nextIndex = nextManualLabelPlacementIndex();
+  if (editing) {
     const selectedChar = placement?.char || labelChars[state.geoManualLabelEditIndex];
     syncToggleButtons("geo-manual-letter-grid", selectedChar);
     if (placement?.placed) {
-      syncToggleButtons("geo-manual-anchor-grid", placement.anchor);
       setRangeDisplay(
         "geo-manual-label-rotation",
         "geo-manual-label-rotation-label",
@@ -3680,29 +3770,29 @@ function syncManualLabelUi() {
     }
   }
 
-  if (startButton) {
-    startButton.hidden = state.geoLabelPlacementMode !== "manual";
-    startButton.disabled = !state.edgeLabels;
-    startButton.setAttribute("aria-pressed", String(geoManualPlacementActive));
-    startButton.textContent = geoManualPlacementActive
-      ? "Cancel placement"
-      : "Place letters on canvas";
+  if (startOverButton) {
+    startOverButton.hidden = !editing;
+    startOverButton.disabled = !state.edgeLabels || placedCount === 0;
   }
 
   if (hint) {
-    if (!usingGeometric()) {
-      hint.textContent = "Manual placement is available in geometric mode.";
-    } else if (state.geoLabelPlacementMode !== "manual") {
-      hint.textContent = "Use auto corners, or switch to manual clicks to place letters yourself.";
-    } else if (geoManualPlacementActive) {
-      const nextChar = labelChars[geoManualPlacementStep];
-      hint.textContent = `Click inside the highlighted zone to place ${nextChar} (${geoManualPlacementStep + 1}/${labelChars.length}).`;
-    } else if (manualLabelPlacementCount() === labelChars.length) {
-      hint.textContent = "All letters placed. Drag labels on canvas to reposition, or adjust rotation and anchor below.";
-    } else if (manualLabelPlacementCount() > 0) {
-      hint.textContent = "Drag placed labels to reposition. Resume placement for remaining letters, or select one to edit.";
+    if (!geometric) {
+      hint.textContent = "Letter editing is available in geometric mode.";
+    } else if (state.geoManualLabelLayoutMode === "fixed") {
+      if (placedCount === 0 && !templateHasDefaultGeometricLabels()) {
+        hint.textContent = "No letters yet. Switch to editing to place them on the canvas.";
+      } else if (placedCount === 0) {
+        hint.textContent = "Default letters are shown. Switch to editing to reposition them.";
+      } else {
+        hint.textContent = "Letters are locked in place. Switch to editing to reposition or rotate them.";
+      }
+    } else if (nextIndex >= 0) {
+      const nextChar = labelChars[nextIndex];
+      hint.textContent = `Click inside the highlighted zone to place ${nextChar} (${nextIndex + 1}/${labelChars.length}), or drag existing letters.`;
+    } else if (placedCount === labelChars.length) {
+      hint.textContent = "All letters placed. Drag to reposition, or switch to fixed to lock them.";
     } else {
-      hint.textContent = `Click Place letters, then click ${labelChars.length} times inside the shape zone.`;
+      hint.textContent = "Drag labels to reposition, or select one below to adjust rotation.";
     }
   }
 }
@@ -3714,11 +3804,14 @@ function syncModeHint() {
     hint.textContent = `Editing sticker ${creationSheet.editingIndex + 1}. Switch to Sheet to update the sheet.`;
     return;
   }
-  if (geoManualPlacementActive && usingGeometric() && state.geoLabelPlacementMode === "manual") {
-    const labelChars = activeEdgeLabelChars();
-    const nextChar = labelChars[geoManualPlacementStep];
-    hint.textContent = `Placing letters: click to place ${nextChar} (${geoManualPlacementStep + 1}/${labelChars.length}). Esc cancels.`;
-    return;
+  if (usingGeometric() && state.geoManualLabelLayoutMode === "editing") {
+    const nextIndex = nextManualLabelPlacementIndex();
+    if (nextIndex >= 0) {
+      const labelChars = activeEdgeLabelChars();
+      const nextChar = labelChars[nextIndex];
+      hint.textContent = `Editing letters: click to place ${nextChar} (${nextIndex + 1}/${labelChars.length}). Esc exits editing.`;
+      return;
+    }
   }
   hint.textContent = "R regenerates. D shows handles. G shows guidelines. S saves.";
 }
@@ -3731,14 +3824,17 @@ function syncEdgeLabelsUi() {
   const gapSlider = document.getElementById("edge-label-gap");
   const disabled = !state.edgeLabels;
   const geometric = usingGeometric();
-  const manualPlacement = geometric && state.geoLabelPlacementMode === "manual";
+  const customPlacements = hasCustomManualLabelPlacements();
+  const editingLabels = geometric && state.geoManualLabelLayoutMode === "editing";
   const [startMin, startMax] = edgeLabelStartLimits();
   if (input) input.checked = state.edgeLabels;
   if (s69Input) {
     s69Input.checked = state.edgeLabelS69;
     s69Input.disabled = disabled;
   }
-  if (offsetSlider) offsetSlider.disabled = disabled || manualPlacement;
+  if (offsetSlider) {
+    offsetSlider.disabled = disabled || editingLabels || customPlacements || !templateHasDefaultGeometricLabels();
+  }
   if (startSlider) {
     startSlider.disabled = disabled || geometric;
     startSlider.min = String(startMin);
@@ -3746,11 +3842,6 @@ function syncEdgeLabelsUi() {
     state.edgeLabelStart = Math.max(startMin, Math.min(startMax, state.edgeLabelStart));
   }
   if (gapSlider) gapSlider.disabled = disabled || geometric;
-  const shuffleRow = document.getElementById("geo-corner-shuffle-row");
-  const shuffleButton = document.getElementById("geo-shuffle-corners");
-  const showShuffle = supportsGeometricCornerShuffle() && !manualPlacement;
-  if (shuffleRow) shuffleRow.hidden = !showShuffle;
-  if (shuffleButton) shuffleButton.disabled = disabled || !showShuffle;
   syncManualLabelUi();
   const directionRow = document.getElementById("edge-label-direction-row");
   const directionButton = document.getElementById("edge-label-reverse");
@@ -4057,6 +4148,7 @@ function regenerateCurrentPath() {
   maybeRandomizeTemplateShape();
   generatePath();
   rebuildPath();
+  if (usingGeometric()) resetGeometricLabelEditingState();
   syncBlobbyControlsUi();
   syncEdgeLabelsUi();
   syncFillModeUi();
@@ -6127,7 +6219,7 @@ function refreshRibbonFromCanvas() {
 }
 
 function mousePressed() {
-  if (state.appMode === "sheet" && creationSheet.stickers.length && mouseInCanvas()) {
+  if (state.appMode === "sheet" && hasGeneratedSheets() && mouseInCanvas()) {
     const index = stickerIndexAtPoint(mouseX, mouseY);
     if (index >= 0) {
       openStickerInEditor(index);
@@ -6141,7 +6233,7 @@ function mousePressed() {
       startManualLabelDrag(hitIndex);
       return false;
     }
-    if (geoManualPlacementActive && pointInLabelPlacementZone(mouseX, mouseY)) {
+    if (nextManualLabelPlacementIndex() >= 0 && pointInLabelPlacementZone(mouseX, mouseY)) {
       cursor("crosshair");
       placeManualLabelAt(mouseX, mouseY);
       return false;
@@ -6380,6 +6472,95 @@ function inchesToPx(inches, dpi = CREATION_DPI) {
   return Math.round(inches * dpi);
 }
 
+function buildScaledDieCutOutline(transform, sheetX, sheetY) {
+  state.exporting = true;
+  redraw();
+  const analyticalPaths = usingGeometric()
+    ? geometricDieCutPolygons(canvasPath.geometric || [])
+    : null;
+  let outline = null;
+  if (analyticalPaths) {
+    outline = scaleOutlineForSheet({ kind: "polygons", paths: analyticalPaths }, transform, sheetX, sheetY);
+  } else {
+    const traced = traceAlphaSilhouetteOutline({ extraPad: 0 });
+    if (traced && traced.points.length >= 4) {
+      if (usingGeometric()) {
+        outline = scaleOutlineForSheet({
+          kind: "polygons",
+          paths: [traced.points],
+        }, transform, sheetX, sheetY);
+      } else if (traced.segments.length >= 1) {
+        outline = scaleOutlineForSheet({
+          kind: "bezier",
+          segments: traced.segments,
+          closed: traced.closed,
+        }, transform, sheetX, sheetY);
+      }
+    }
+  }
+  state.exporting = false;
+  return outline;
+}
+
+function buildDieCutSvgFromOutline(outline, exportWidth, exportHeight) {
+  if (!outline) return null;
+  let pathMarkup;
+  if (outline.kind === "polygons") {
+    pathMarkup = outline.paths
+      .map((points) => `<path fill="none" stroke="#000000" stroke-width="0.75" d="${contourToSvgPath(points)}" />`)
+      .join("\n  ");
+  } else {
+    const d = bezierSegmentsToSvgPath(outline.segments, outline.closed);
+    pathMarkup = `<path fill="none" stroke="#000000" stroke-width="0.75" d="${d}" />`;
+  }
+  return wrapDieCutSvg(pathMarkup, exportWidth, exportHeight);
+}
+
+function drawStickerExportCanvas(sourceCanvas, transform, exportPx) {
+  const cellCanvas = document.createElement("canvas");
+  cellCanvas.width = exportPx;
+  cellCanvas.height = exportPx;
+  const ctx = cellCanvas.getContext("2d");
+  ctx.drawImage(
+    sourceCanvas,
+    transform.sourceX,
+    transform.sourceY,
+    transform.sourceW,
+    transform.sourceH,
+    transform.offsetX,
+    transform.offsetY,
+    transform.drawW,
+    transform.drawH,
+  );
+  return cellCanvas;
+}
+
+function renderCurrentCompositionExport(exportPx) {
+  state.exporting = true;
+  redraw();
+  const sourceCanvas = drawingContext.canvas;
+  const contentBounds = measureCanvasAlphaBounds(sourceCanvas);
+  const transform = stickerCellDrawTransform(
+    exportPx,
+    contentBounds,
+    sourceCanvas.width,
+    sourceCanvas.height,
+  );
+  state.exporting = false;
+  const cellCanvas = drawStickerExportCanvas(sourceCanvas, transform, exportPx);
+  const outline = buildScaledDieCutOutline(transform, 0, 0);
+  return { cellCanvas, outline, exportPx };
+}
+
+function canvasToPngBlob(canvas) {
+  return new Promise((resolve, reject) => {
+    canvas.toBlob((blob) => {
+      if (!blob) reject(new Error("PNG export failed"));
+      else resolve(blob);
+    }, "image/png");
+  });
+}
+
 function cloneGeneratedPath(path) {
   if (!path) return null;
   if (typeof structuredClone === "function") {
@@ -6429,6 +6610,9 @@ function applyCompositionState(snapshot) {
   COMPOSITION_STATE_KEYS.forEach((key) => {
     state[key] = snapshot.stateFields[key];
   });
+  if (state.geoManualLabelLayoutMode !== "editing") {
+    state.geoManualLabelLayoutMode = "fixed";
+  }
   state.colorPath = snapshot.colorPath.slice();
   generatedPath = cloneGeneratedPath(snapshot.generatedPath);
   relaxState.from = snapshot.relaxFrom ? copyPoints(snapshot.relaxFrom) : null;
@@ -6581,7 +6765,7 @@ function restoreEditorSnapshot(snapshot) {
 }
 
 function computeSheetLayout(paperSize, stickerSizeIn, quantity) {
-  const paper = PAPER_SIZES[paperSize] || PAPER_SIZES.letter;
+  const paper = PAPER_SIZES[paperSize] || PAPER_SIZES["4x6"];
   const sheetW = inchesToPx(paper.widthIn);
   const sheetH = inchesToPx(paper.heightIn);
   const margin = inchesToPx(SHEET_MARGIN_IN);
@@ -6622,88 +6806,72 @@ function computeSheetLayout(paperSize, stickerSizeIn, quantity) {
 
 function updateCreationLayoutInfo() {
   const info = document.getElementById("creation-layout-info");
-  const needed = sheetStickerCount();
-  creationSheet.quantity = needed;
+  const perPage = stickersPerSheetPage();
   const layout = computeSheetLayout(
     creationSheet.paperSize,
     creationSheet.stickerSizeIn,
-    needed,
+    perPage,
   );
   if (!info) return;
-  if (layout.maxFit < needed) {
-    info.textContent = `Grid fits ${layout.maxFit} of ${needed} — reduce sticker size for 6 each of D, S, V, C`;
+  const total = perPage * creationSheet.sheetCount;
+  const sheetLabel = creationSheet.sheetCount === 1 ? "1 sheet" : `${creationSheet.sheetCount} sheets`;
+  if (layout.maxFit < perPage) {
+    info.textContent = `Grid fits ${layout.maxFit} of ${perPage} per page — reduce sticker size`;
     return;
   }
-  info.textContent = `Grid: ${layout.cols} × ${layout.rows} · 6 each of D, S, V, C on ${layout.paper.name}`;
+  info.textContent = `Grid: ${layout.cols} × ${layout.rows} · ${perPage} per page · ${sheetLabel} (${total} total) · mixed D, S, V, C`;
 }
 
-function buildSheetStickerSnapshots() {
-  const snapshots = [];
-  TEMPLATES.forEach((template) => {
-    for (let i = 0; i < SHEET_COPIES_PER_LETTER; i++) {
-      randomizeCompositionForTemplate(template.id);
-      snapshots.push(captureCompositionSnapshot());
-    }
+function buildSheetStickerSnapshots(count = stickersPerSheetPage()) {
+  return buildBalancedTemplateIds(count).map((templateId) => {
+    randomizeCompositionForTemplate(templateId);
+    return captureCompositionSnapshot();
   });
-  return shuffleArray(snapshots);
 }
 
 function renderSheetStickerCell(snapshot, cellPx, sheetX, sheetY) {
   const { sourceCanvas, transform } = prepareStickerCellRender(snapshot, cellPx);
-  const cellCanvas = document.createElement("canvas");
-  cellCanvas.width = cellPx;
-  cellCanvas.height = cellPx;
-  const ctx = cellCanvas.getContext("2d");
-  ctx.drawImage(
-    sourceCanvas,
-    transform.sourceX,
-    transform.sourceY,
-    transform.sourceW,
-    transform.sourceH,
-    transform.offsetX,
-    transform.offsetY,
-    transform.drawW,
-    transform.drawH,
-  );
-
-  state.exporting = true;
-  redraw();
-  const analyticalPaths = usingGeometric()
-    ? geometricDieCutPolygons(canvasPath.geometric || [])
-    : null;
-  let outline = null;
-  if (analyticalPaths) {
-    outline = scaleOutlineForSheet({ kind: "polygons", paths: analyticalPaths }, transform, sheetX, sheetY);
-  } else {
-    const traced = traceAlphaSilhouetteOutline({ extraPad: 0 });
-    if (traced && traced.points.length >= 4) {
-      if (usingGeometric()) {
-        outline = scaleOutlineForSheet({
-          kind: "polygons",
-          paths: [traced.points],
-        }, transform, sheetX, sheetY);
-      } else if (traced.segments.length >= 1) {
-        outline = scaleOutlineForSheet({
-          kind: "bezier",
-          segments: traced.segments,
-          closed: traced.closed,
-        }, transform, sheetX, sheetY);
-      }
-    }
-  }
-  state.exporting = false;
-
+  const cellCanvas = drawStickerExportCanvas(sourceCanvas, transform, cellPx);
+  const outline = buildScaledDieCutOutline(transform, sheetX, sheetY);
   return { cellCanvas, outline };
 }
 
-function drawSheetSizeDebugOverlay() {
-  const layout = creationSheet.layout;
-  const scale = creationSheet.previewScale;
-  if (!layout || !scale || !creationSheet.stickers.length) return;
+function sheetPreviewGrid(sheetCount) {
+  if (sheetCount <= 1) return { cols: 1, rows: 1 };
+  if (sheetCount === 2) return { cols: 2, rows: 1 };
+  if (sheetCount === 3) return { cols: 3, rows: 1 };
+  return { cols: 2, rows: 2 };
+}
 
+function sheetPreviewOffset(sheetIndex, pageLayout, stackGapPx, sheetCount = creationSheet.sheets.length) {
+  const grid = sheetPreviewGrid(sheetCount);
+  const col = sheetIndex % grid.cols;
+  const row = Math.floor(sheetIndex / grid.cols);
+  return {
+    x: col * (pageLayout.sheetW + stackGapPx),
+    y: row * (pageLayout.sheetH + stackGapPx),
+  };
+}
+
+function sheetPreviewTotalSize(pageLayout, sheetCount, stackGapPx) {
+  const grid = sheetPreviewGrid(sheetCount);
+  return {
+    grid,
+    totalW: pageLayout.sheetW * grid.cols + stackGapPx * Math.max(0, grid.cols - 1),
+    totalH: pageLayout.sheetH * grid.rows + stackGapPx * Math.max(0, grid.rows - 1),
+  };
+}
+
+function drawSheetSizeDebugOverlay() {
+  const stack = creationSheet.previewStack;
+  const scale = creationSheet.previewScale;
+  if (!stack || !scale || !creationSheet.sheets.length) return;
+
+  const layout = stack.pageLayout;
   const sizeIn = creationSheet.stickerSizeIn;
   const sizeLabel = `${sizeIn.toFixed(2)} in`;
   const sizePx = Math.round(layout.cellPx);
+  let flatIndex = 0;
 
   push();
   noFill();
@@ -6713,19 +6881,26 @@ function drawSheetSizeDebugOverlay() {
   textAlign(CENTER, TOP);
   textFont("monospace");
 
-  for (let i = 0; i < layout.positions.length; i++) {
-    const pos = layout.positions[i];
-    const x = pos.x * scale;
-    const y = pos.y * scale;
-    const cellPx = pos.cellPx * scale;
-    rect(x, y, cellPx, cellPx);
+  creationSheet.sheets.forEach((sheet, sheetIndex) => {
+    const sheetOffset = sheetPreviewOffset(sheetIndex, layout, stack.stackGapPx, stack.sheetCount);
+    const sheetOffsetX = sheetOffset.x * scale;
+    const sheetOffsetY = sheetOffset.y * scale;
+    for (let i = 0; i < sheet.stickers.length; i++) {
+      const pos = layout.positions[i];
+      if (!pos) continue;
+      const x = sheetOffsetX + pos.x * scale;
+      const y = sheetOffsetY + pos.y * scale;
+      const cellPx = pos.cellPx * scale;
+      rect(x, y, cellPx, cellPx);
 
-    noStroke();
-    fill(255, 0, 0);
-    text(`${i + 1}: ${sizeLabel} (${sizePx}px)`, x + cellPx / 2, y + 3 * scale);
-    noFill();
-    stroke(255, 0, 0);
-  }
+      noStroke();
+      fill(255, 0, 0);
+      text(`${flatIndex + 1}: ${sizeLabel} (${sizePx}px)`, x + cellPx / 2, y + 3 * scale);
+      noFill();
+      stroke(255, 0, 0);
+      flatIndex += 1;
+    }
+  });
   pop();
 }
 
@@ -6773,30 +6948,58 @@ function buildSheetDieCutSvg(layout, outlines) {
 }
 
 function renderCreationSheetPreview() {
-  if (!creationSheet.stickers.length) return;
-  const layout = computeSheetLayout(
-    creationSheet.paperSize,
-    creationSheet.stickerSizeIn,
-    creationSheet.quantity,
-  );
-  creationSheet.layout = layout;
-  creationSheet.stickers = creationSheet.stickers.slice(0, layout.count);
+  if (!creationSheet.sheets.length) return;
+  const pageLayout = creationSheet.sheets[0].layout;
+  if (!pageLayout) return;
+
+  const stackGapPx = pageLayout.gap;
+  const sheetCount = creationSheet.sheets.length;
+  const { grid, totalW, totalH } = sheetPreviewTotalSize(pageLayout, sheetCount, stackGapPx);
+  creationSheet.previewStack = {
+    pageLayout,
+    sheetCount,
+    stackGapPx,
+    grid,
+    totalW,
+    totalH,
+  };
 
   const backup = captureEditorSnapshot();
   const holder = document.getElementById("canvas-holder");
   const previewScale = Math.min(
-    Math.max(320, holder.clientWidth) / layout.sheetW,
-    Math.max(320, holder.clientHeight) / layout.sheetH,
+    Math.max(320, holder.clientWidth) / totalW,
+    Math.max(320, holder.clientHeight) / totalH,
     1,
   );
-  const previewW = Math.max(1, Math.round(layout.sheetW * previewScale));
-  const previewH = Math.max(1, Math.round(layout.sheetH * previewScale));
+  const previewW = Math.max(1, Math.round(totalW * previewScale));
+  const previewH = Math.max(1, Math.round(totalH * previewScale));
+  const pagePreviewW = Math.max(1, Math.round(pageLayout.sheetW * previewScale));
+  const pagePreviewH = Math.max(1, Math.round(pageLayout.sheetH * previewScale));
 
   const offscreen = document.createElement("canvas");
   offscreen.width = previewW;
   offscreen.height = previewH;
   const ctx = offscreen.getContext("2d");
-  renderSheetToContext(ctx, layout, creationSheet.stickers, previewScale);
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, previewW, previewH);
+
+  state.sheetRendering = true;
+  try {
+    creationSheet.sheets.forEach((sheet, sheetIndex) => {
+      const sheetCanvas = document.createElement("canvas");
+      sheetCanvas.width = pagePreviewW;
+      sheetCanvas.height = pagePreviewH;
+      const sheetCtx = sheetCanvas.getContext("2d");
+      renderSheetToContext(sheetCtx, pageLayout, sheet.stickers, previewScale);
+      const sheetOffset = sheetPreviewOffset(sheetIndex, pageLayout, stackGapPx, sheetCount);
+      const destX = Math.round(sheetOffset.x * previewScale);
+      const destY = Math.round(sheetOffset.y * previewScale);
+      ctx.drawImage(sheetCanvas, destX, destY);
+    });
+  } finally {
+    state.sheetRendering = false;
+  }
+
   creationSheet.cachedImage = offscreen;
   creationSheet.previewScale = previewScale;
 
@@ -6812,15 +7015,13 @@ function renderCreationSheetPreview() {
 }
 
 function generateCreationSheet() {
-  const needed = sheetStickerCount();
-  creationSheet.quantity = needed;
+  const perPage = stickersPerSheetPage();
   const layout = computeSheetLayout(
     creationSheet.paperSize,
     creationSheet.stickerSizeIn,
-    needed,
+    perPage,
   );
-  creationSheet.layout = layout;
-  if (layout.count < needed) {
+  if (layout.maxFit < perPage) {
     updateCreationLayoutInfo();
     return;
   }
@@ -6829,31 +7030,48 @@ function generateCreationSheet() {
   creationSheet.editingIndex = -1;
   creationSheet.sourceCanvasW = width;
   creationSheet.sourceCanvasH = height;
-  creationSheet.stickers = buildSheetStickerSnapshots();
+  creationSheet.sheets = [];
+  for (let i = 0; i < creationSheet.sheetCount; i++) {
+    creationSheet.sheets.push({
+      stickers: buildSheetStickerSnapshots(perPage).slice(0, layout.count),
+      layout,
+    });
+  }
   restoreEditorSnapshot(backup);
   renderCreationSheetPreview();
 }
 
-function downloadCreationSheet() {
-  if (!creationSheet.stickers.length || !creationSheet.layout) return;
-  const layout = creationSheet.layout;
+async function downloadCreationSheet() {
+  if (!creationSheet.sheets.length) return;
   const backup = captureEditorSnapshot();
-
-  const offscreen = document.createElement("canvas");
-  offscreen.width = layout.sheetW;
-  offscreen.height = layout.sheetH;
-  const ctx = offscreen.getContext("2d");
-  const outlines = renderSheetToContext(ctx, layout, creationSheet.stickers, 1);
-  const pngDataUrl = offscreen.toDataURL("image/png");
-  const svg = buildSheetDieCutSvg(layout, outlines);
   const exportId = exportTimestampId();
+  const downloads = creationSheet.sheets.map((sheet, index) => {
+    const layout = sheet.layout;
+    const offscreen = document.createElement("canvas");
+    offscreen.width = layout.sheetW;
+    offscreen.height = layout.sheetH;
+    const ctx = offscreen.getContext("2d");
+    const outlines = renderSheetToContext(ctx, layout, sheet.stickers, 1);
+    const svg = buildSheetDieCutSvg(layout, outlines);
+    const suffix = creationSheet.sheets.length > 1 ? `-${index + 1}` : "";
+    return { offscreen, svg, suffix };
+  });
 
   restoreEditorSnapshot(backup);
   renderCreationSheetPreview();
 
-  triggerDownload(pngDataUrl, `sticker-sheet-${exportId}.png`);
-  if (svg) {
-    setTimeout(() => triggerDownload(svg, `sticker-sheet-die-cut-${exportId}.svg`, "image/svg+xml"), 300);
+  for (const { offscreen, svg, suffix } of downloads) {
+    try {
+      const pngBlob = await canvasToPngBlob(offscreen);
+      triggerDownload(pngBlob, `sticker-sheet${suffix}-${exportId}.png`);
+      if (svg) {
+        await new Promise((resolve) => setTimeout(resolve, 350));
+        triggerDownload(svg, `sticker-sheet-die-cut${suffix}-${exportId}.svg`, "image/svg+xml");
+      }
+      await new Promise((resolve) => setTimeout(resolve, 400));
+    } catch {
+      // Skip failed sheet export and continue with remaining sheets.
+    }
   }
 }
 
@@ -6883,37 +7101,57 @@ function applyCompositionSnapshotToEditor(snapshot) {
 }
 
 function stickerIndexAtPoint(x, y) {
-  const layout = creationSheet.layout;
+  const stack = creationSheet.previewStack;
   const scale = creationSheet.previewScale;
-  if (!layout || !scale || !creationSheet.stickers.length) return -1;
+  if (!stack || !scale || !creationSheet.sheets.length) return -1;
   const sheetX = x / scale;
   const sheetY = y / scale;
-  for (let i = 0; i < layout.positions.length; i++) {
-    const pos = layout.positions[i];
+  const { pageLayout, stackGapPx, sheetCount } = stack;
+  let flatIndex = 0;
+  for (let sheetIndex = 0; sheetIndex < creationSheet.sheets.length; sheetIndex++) {
+    const sheet = creationSheet.sheets[sheetIndex];
+    const sheetOffset = sheetPreviewOffset(sheetIndex, pageLayout, stackGapPx, sheetCount);
     if (
-      sheetX >= pos.x
-      && sheetX < pos.x + pos.cellPx
-      && sheetY >= pos.y
-      && sheetY < pos.y + pos.cellPx
+      sheetX < sheetOffset.x
+      || sheetX >= sheetOffset.x + pageLayout.sheetW
+      || sheetY < sheetOffset.y
+      || sheetY >= sheetOffset.y + pageLayout.sheetH
     ) {
-      return i;
+      flatIndex += sheet.stickers.length;
+      continue;
     }
+    const localX = sheetX - sheetOffset.x;
+    const localY = sheetY - sheetOffset.y;
+    for (let i = 0; i < sheet.stickers.length; i++) {
+      const pos = pageLayout.positions[i];
+      if (!pos) continue;
+      if (
+        localX >= pos.x
+        && localX < pos.x + pos.cellPx
+        && localY >= pos.y
+        && localY < pos.y + pos.cellPx
+      ) {
+        return flatIndex + i;
+      }
+    }
+    return -1;
   }
   return -1;
 }
 
 function commitEditedStickerToSheet() {
   if (creationSheet.editingIndex < 0) return;
-  creationSheet.stickers[creationSheet.editingIndex] = captureCompositionSnapshot();
+  setFlatSheetSticker(creationSheet.editingIndex, captureCompositionSnapshot());
   creationSheet.editingIndex = -1;
 }
 
 function openStickerInEditor(index) {
-  if (index < 0 || index >= creationSheet.stickers.length) return;
+  const snapshot = getFlatSheetSticker(index);
+  if (index < 0 || !snapshot) return;
   creationSheet.editingIndex = index;
   state.appMode = "editor";
   syncAppModeUi();
-  applyCompositionSnapshotToEditor(creationSheet.stickers[index]);
+  applyCompositionSnapshotToEditor(snapshot);
 }
 
 function syncAppModeUi() {
@@ -6926,15 +7164,15 @@ function syncAppModeUi() {
   if (editorPanel) editorPanel.hidden = isCreation;
   if (creationPanel) creationPanel.hidden = !isCreation;
   if (canvasHolder) {
-    canvasHolder.classList.toggle("sheet-active", isCreation && creationSheet.stickers.length > 0);
+    canvasHolder.classList.toggle("sheet-active", isCreation && hasGeneratedSheets());
   }
   syncSegmentedControl("app-mode-control", state.appMode);
 
   if (hint) {
     if (isCreation) {
-      hint.textContent = creationSheet.stickers.length
+      hint.textContent = hasGeneratedSheets()
         ? `Click a sticker to edit it, then return here to update the sheet.${state.sheetDebug ? " D hides size outlines." : " D shows sticker size outlines."}`
-        : "Set paper, size, and quantity, then generate a sticker sheet.";
+        : "Set paper, sticker size, and sheet count, then generate.";
     } else if (creationSheet.editingIndex >= 0) {
       hint.textContent = `Editing sticker ${creationSheet.editingIndex + 1}. Switch to Sheet to update the sheet.`;
     } else {
@@ -6952,10 +7190,10 @@ function setAppMode(mode) {
     }
     state.appMode = "sheet";
     syncAppModeUi();
-    if (creationSheet.stickers.length > 0) {
+    if (hasGeneratedSheets()) {
       renderCreationSheetPreview();
     } else {
-      creationSheet.cachedImage = null;
+      clearCreationSheet();
       const holder = document.getElementById("canvas-holder");
       resizeCanvas(Math.max(320, holder.clientWidth), Math.max(320, holder.clientHeight));
       redraw();
@@ -7015,23 +7253,24 @@ function bindCreationUi() {
   const paperSelect = document.getElementById("creation-paper-size");
   const stickerSize = document.getElementById("creation-sticker-size");
   const stickerSizeLabel = document.getElementById("creation-sticker-size-label");
+  const sheetCount = document.getElementById("creation-sheet-count");
+  const sheetCountLabel = document.getElementById("creation-sheet-count-label");
   const sheetDebug = document.getElementById("creation-sheet-debug");
   const generateBtn = document.getElementById("creation-generate");
   const downloadBtn = document.getElementById("creation-download");
+
+  const invalidateGeneratedSheets = () => {
+    clearCreationSheet();
+    if (downloadBtn) downloadBtn.disabled = true;
+    updateCreationLayoutInfo();
+    redraw();
+  };
 
   if (paperSelect) {
     paperSelect.value = creationSheet.paperSize;
     paperSelect.addEventListener("change", () => {
       creationSheet.paperSize = paperSelect.value;
-      creationSheet.cachedImage = null;
-      creationSheet.stickers = [];
-      creationSheet.layout = null;
-      creationSheet.editingIndex = -1;
-      creationSheet.sourceCanvasW = 0;
-      creationSheet.sourceCanvasH = 0;
-      if (downloadBtn) downloadBtn.disabled = true;
-      updateCreationLayoutInfo();
-      redraw();
+      invalidateGeneratedSheets();
     });
   }
 
@@ -7039,15 +7278,21 @@ function bindCreationUi() {
     stickerSize.addEventListener("input", () => {
       creationSheet.stickerSizeIn = Number(stickerSize.value);
       stickerSizeLabel.textContent = `${creationSheet.stickerSizeIn.toFixed(2)} in`;
-      creationSheet.cachedImage = null;
-      creationSheet.stickers = [];
-      creationSheet.layout = null;
-      creationSheet.editingIndex = -1;
-      creationSheet.sourceCanvasW = 0;
-      creationSheet.sourceCanvasH = 0;
-      if (downloadBtn) downloadBtn.disabled = true;
-      updateCreationLayoutInfo();
-      redraw();
+      invalidateGeneratedSheets();
+    });
+  }
+
+  if (sheetCount && sheetCountLabel) {
+    sheetCount.value = String(creationSheet.sheetCount);
+    sheetCountLabel.textContent = String(creationSheet.sheetCount);
+    sheetCount.addEventListener("input", () => {
+      creationSheet.sheetCount = Math.min(
+        SHEET_COUNT_MAX,
+        Math.max(1, Number(sheetCount.value) || 1),
+      );
+      sheetCount.value = String(creationSheet.sheetCount);
+      sheetCountLabel.textContent = String(creationSheet.sheetCount);
+      invalidateGeneratedSheets();
     });
   }
 
@@ -7120,9 +7365,9 @@ function onKeyDown(event) {
     }
     return;
   }
-  if (key === "escape" && geoManualPlacementActive) {
+  if (key === "escape" && usingGeometric() && state.geoManualLabelLayoutMode === "editing") {
     event.preventDefault();
-    cancelManualLabelPlacement();
+    setManualLabelLayoutMode("fixed");
     return;
   }
   if (!state.debug) return;

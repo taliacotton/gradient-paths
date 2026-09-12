@@ -22,66 +22,6 @@
       </section>
 
       <div id="editor-panel">
-      <label class="lightswitch">
-        <span class="lightswitch-label">Letter overlay</span>
-        <input id="edge-labels" type="checkbox" checked />
-        <span class="lightswitch-track" aria-hidden="true"></span>
-      </label>
-
-      <label class="lightswitch">
-        <span class="lightswitch-label">69</span>
-        <input id="edge-label-s69" type="checkbox" />
-        <span class="lightswitch-track" aria-hidden="true"></span>
-      </label>
-
-      <label class="row">
-        <span>Edge offset</span>
-        <strong id="edge-label-offset-label">-30px</strong>
-      </label>
-      <input id="edge-label-offset" type="range" min="-100" max="100" step="1" value="-30" />
-
-      <label class="row">
-        <span>Edge start</span>
-        <strong id="edge-label-start-label">0px</strong>
-      </label>
-      <input id="edge-label-start" type="range" min="-400" max="400" step="1" value="0" />
-
-      <label class="row">
-        <span>Letter gap</span>
-        <strong id="edge-label-gap-label">60px</strong>
-      </label>
-      <input id="edge-label-gap" type="range" min="20" max="150" step="1" value="60" />
-
-      <div id="geo-corner-shuffle-row" hidden>
-        <button type="button" id="geo-shuffle-corners">Shuffle corner letters</button>
-      </div>
-
-      <div id="geo-manual-label-section" hidden>
-        <p class="hint" id="geo-manual-label-hint">Switch to manual mode, then place each letter on the canvas.</p>
-        <div class="template-grid" id="geo-label-placement-mode-grid"></div>
-        <button type="button" id="geo-manual-label-start">Place letters on canvas</button>
-        <div class="template-grid manual-letter-grid" id="geo-manual-letter-grid"></div>
-        <div id="geo-manual-letter-controls" hidden>
-          <label class="row">
-            <span>Rotation</span>
-            <strong id="geo-manual-label-rotation-label">0°</strong>
-          </label>
-          <input id="geo-manual-label-rotation" type="range" min="-180" max="180" step="1" value="0" />
-          <p class="hint manual-anchor-label">Rotation anchor</p>
-          <div class="template-grid anchor-grid" id="geo-manual-anchor-grid"></div>
-        </div>
-      </div>
-
-      <div id="edge-label-direction-row" hidden>
-        <button type="button" id="edge-label-reverse" aria-pressed="false">Letter order: forwards</button>
-      </div>
-
-      <label class="lightswitch">
-        <span class="lightswitch-label">Rescale letters</span>
-        <input id="rescale-letters" type="checkbox" checked />
-        <span class="lightswitch-track" aria-hidden="true"></span>
-      </label>
-
       <section>
         <div class="template-grid" id="template-grid"></div>
         <div class="template-grid" id="letter-mode-grid"></div>
@@ -103,11 +43,13 @@
       </section>
 
       <section>
-        <label class="row">
-          <span>Path scale</span>
-          <strong id="path-scale-label">37%</strong>
-        </label>
-        <input id="path-scale" type="range" min="0.2" max="1" step="0.01" value="0.37" />
+        <div id="path-scale-controls" hidden>
+          <label class="row">
+            <span>Path scale</span>
+            <strong id="path-scale-label">37%</strong>
+          </label>
+          <input id="path-scale" type="range" min="0.2" max="1" step="0.01" value="0.37" />
+        </div>
 
         <div id="geo-d-controls" hidden>
           <label class="row">
@@ -268,6 +210,62 @@
         <input id="relax-random" type="range" min="0" max="1" step="0.01" value="0" />
       </section>
 
+      <section id="letter-overlay-section">
+        <label class="lightswitch">
+          <span class="lightswitch-label">Letter overlay</span>
+          <input id="edge-labels" type="checkbox" checked />
+          <span class="lightswitch-track" aria-hidden="true"></span>
+        </label>
+
+        <label class="lightswitch">
+          <span class="lightswitch-label">69</span>
+          <input id="edge-label-s69" type="checkbox" />
+          <span class="lightswitch-track" aria-hidden="true"></span>
+        </label>
+
+        <label class="row">
+          <span>Edge offset</span>
+          <strong id="edge-label-offset-label">-30px</strong>
+        </label>
+        <input id="edge-label-offset" type="range" min="-100" max="100" step="1" value="-30" />
+
+        <label class="row">
+          <span>Edge start</span>
+          <strong id="edge-label-start-label">0px</strong>
+        </label>
+        <input id="edge-label-start" type="range" min="-400" max="400" step="1" value="0" />
+
+        <label class="row">
+          <span>Letter gap</span>
+          <strong id="edge-label-gap-label">60px</strong>
+        </label>
+        <input id="edge-label-gap" type="range" min="20" max="150" step="1" value="60" />
+
+        <div id="geo-manual-label-section" hidden>
+          <p class="hint" id="geo-manual-label-hint">Letters are locked in place. Switch to editing to reposition them.</p>
+          <div class="template-grid" id="geo-manual-layout-mode-grid"></div>
+          <button type="button" id="geo-manual-label-start-over" hidden>Start over</button>
+          <div class="template-grid manual-letter-grid" id="geo-manual-letter-grid"></div>
+          <div id="geo-manual-letter-controls" hidden>
+            <label class="row">
+              <span>Rotation</span>
+              <strong id="geo-manual-label-rotation-label">0°</strong>
+            </label>
+            <input id="geo-manual-label-rotation" type="range" min="-180" max="180" step="1" value="0" />
+          </div>
+        </div>
+
+        <div id="edge-label-direction-row" hidden>
+          <button type="button" id="edge-label-reverse" aria-pressed="false">Letter order: forwards</button>
+        </div>
+
+        <label class="lightswitch" hidden>
+          <span class="lightswitch-label">Rescale letters</span>
+          <input id="rescale-letters" type="checkbox" checked />
+          <span class="lightswitch-track" aria-hidden="true"></span>
+        </label>
+      </section>
+
       <div class="actions">
         <button type="button" id="randomize">Randomize</button>
         <button type="button" id="shuffle">Shuffle colors</button>
@@ -281,6 +279,7 @@
             <span>Paper size</span>
           </label>
           <select id="creation-paper-size">
+            <option value="4x6" selected>4 × 6 in</option>
             <option value="letter">US Letter (8.5 × 11 in)</option>
             <option value="a4">A4 (8.27 × 11.69 in)</option>
             <option value="legal">US Legal (8.5 × 14 in)</option>
@@ -294,11 +293,17 @@
           <input id="creation-sticker-size" type="range" min="0.75" max="2.5" step="0.05" value="1.5" />
 
           <label class="row">
-            <span>Stickers</span>
-            <strong>6 per letter · 24 total</strong>
+            <span>Stickers per page</span>
+            <strong>6</strong>
           </label>
 
-          <p class="sheet-meta" id="creation-layout-info">Grid: 4 × 6 · 6 each of D, S, V, C</p>
+          <label class="row">
+            <span>Sheets</span>
+            <strong id="creation-sheet-count-label">1</strong>
+          </label>
+          <input id="creation-sheet-count" type="range" min="1" max="4" step="1" value="1" />
+
+          <p class="sheet-meta" id="creation-layout-info">Grid: 2 × 3 · 6 per page · 1 sheet (6 total) · mixed D, S, V, C</p>
 
           <label class="row">
             <span>Debug sticker size</span>

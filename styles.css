@@ -36,6 +36,16 @@ body {
   height: 100vh;
 }
 
+#letter-overlay-section {
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+  margin-bottom: 0;
+}
+
+#letter-overlay-section .lightswitch:first-of-type {
+  margin-top: 0;
+}
+
 header h1 {
   margin: 0 0 8px;
   font-size: 18px;
@@ -210,10 +220,12 @@ h2 {
 }
 
 #letter-mode-grid {
-  grid-template-columns: 1fr 1fr;
+  display: flex;
+  gap: 8px;
+  margin-bottom: 0;
 }
 
-#geo-label-placement-mode-grid {
+#geo-manual-layout-mode-grid {
   grid-template-columns: 1fr 1fr;
 }
 
@@ -221,40 +233,33 @@ h2 {
   grid-template-columns: repeat(4, 1fr);
 }
 
-.anchor-grid {
-  grid-template-columns: 1fr 1fr;
-}
-
-.manual-anchor-label {
-  margin: 0 0 8px;
-}
-
 #geo-manual-label-section {
-  margin-bottom: 18px;
+  margin-bottom: 0;
 }
 
-#geo-manual-label-start {
-  width: 100%;
+#letter-overlay-section #geo-manual-label-section .hint {
   margin-bottom: 10px;
-  height: 38px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: #181818;
-  color: var(--text);
-  cursor: pointer;
-}
-
-#geo-manual-label-start[aria-pressed="true"] {
-  border-color: #ffd166;
-  background: #2a2418;
 }
 
 #letter-mode-grid button {
+  flex: 1;
+  min-width: 0;
+  aspect-ratio: 4 / 3;
   height: auto;
-  min-height: 40px;
-  padding: 8px 10px;
-  line-height: 1.25;
-  white-space: normal;
+  padding: 0;
+}
+
+#letter-mode-grid .mode-preview {
+  width: 42px;
+  height: 42px;
+}
+
+.mode-preview {
+  display: block;
+  width: 22px;
+  height: 22px;
+  pointer-events: none;
+  color: var(--text);
 }
 
 .template-grid button {
@@ -278,7 +283,24 @@ h2 {
   cursor: not-allowed;
 }
 
-#fill-mode-grid button,
+#fill-mode-grid {
+  display: flex;
+  gap: 8px;
+}
+
+#fill-mode-grid button {
+  flex: 1;
+  min-width: 0;
+  aspect-ratio: 4 / 3;
+  height: auto;
+  padding: 0;
+}
+
+#fill-mode-grid .fill-preview {
+  width: 62px;
+  height: 40px;
+}
+
 #palette-mode-grid button {
   height: 56px;
   padding: 0 8px;
@@ -292,8 +314,6 @@ h2 {
 
 .fill-preview {
   display: block;
-  width: 100%;
-  height: 32px;
   pointer-events: none;
 }
 
@@ -456,14 +476,17 @@ input[type="range"] {
   accent-color: var(--accent);
 }
 
-#geo-corner-shuffle-row,
 #edge-label-direction-row {
   margin: 0 0 18px;
 }
 
-#geo-corner-shuffle-row button,
-#edge-label-direction-row button {
+#edge-label-direction-row button,
+#geo-manual-label-start-over {
   width: 100%;
+}
+
+#geo-manual-label-start-over {
+  margin-top: 8px;
 }
 
 #edge-label-reverse[aria-pressed="true"] {
